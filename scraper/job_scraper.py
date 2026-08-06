@@ -97,6 +97,13 @@ BACKEND_API_KEY = os.environ.get("BACKEND_API_KEY", "").strip()
 BACKEND_API_BATCH_SIZE = int(os.environ.get("BACKEND_API_BATCH_SIZE", "100"))
 BACKEND_API_TIMEOUT = int(os.environ.get("BACKEND_API_TIMEOUT", "30"))
 
+# Admin job-creation API (e.g. https://admin.applyforme.us/api/jobs) - a different
+# destination/shape than BACKEND_API_URL above: one job object per POST, Bearer auth,
+# field names are company/role/platform/... rather than the batched {"jobs": [...]} shape.
+ADMIN_API_URL = os.environ.get("ADMIN_API_URL", "").strip()
+ADMIN_API_TOKEN = os.environ.get("ADMIN_API_TOKEN", "").strip()
+ADMIN_API_TIMEOUT = int(os.environ.get("ADMIN_API_TIMEOUT", "30"))
+
 LLM_MODEL = os.environ.get("LLM_MODEL", "google/gemma-3-270m")
 LLM_MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", "512"))
 LLM_TEMPERATURE = float(os.environ.get("LLM_TEMPERATURE", "0.2"))
@@ -1113,7 +1120,135 @@ def post_rows_to_backend(rows, url=None, api_key=None, batch_size=None):
     return sent, failed
 
 
-def run(csv_path, out_path, limit_per_portal, only=None, post_to_backend=True):
+# --------------------------------------------------------------------------
+# Admin job-creation API (single job per POST, different field names)
+# --------------------------------------------------------------------------
+
+_ADMIN_SENIOR_RE = re.compile(r"\b(senior|sr\.?|staff|principal|lead)\b", re.IGNORECASE)
+_ADMIN_JUNIOR_RE = re.compile(r"\b(junior|jr\.?|entry[- ]level|intern(?:ship)?)\b", re.IGNORECASE)
+_ADMIN_VISA_RE = re.compile(r"visa sponsorship|will sponsor|sponsors? visa|sponsorship available", re.IGNORECASE)
+_ADMIN_SALARY_NUM_RE = re.compile(r"[\d,]+(?:\.\d+)?")
+_ADMIN_EMPLOYMENT_TYPE_RE = re.compile(
+    r"\b(full[- ]time|part[- ]time|contract|freelance|internship|temporary)\b", re.IGNORECASE
+)
+_ADMIN_EMPLOYMENT_TYPE_MAP = {
+    "full-time": "Full-time", "full time": "Full-time",
+    "part-time": "Part-time", "part time": "Part-time",
+    "contract": "Contract", "freelance": "Freelance",
+    "internship": "Internship", "temporary": "Temporary",
+}
+
+
+def _admin_infer_seniority(title):
+    if _ADMIN_SENIOR_RE.search(title):
+        return "Senior"
+    if _ADMIN_JUNIOR_RE.search(title):
+        return "Junior"
+    return "Mid"
+
+
+def _admin_infer_employment_type(text):
+    match = _ADMIN_EMPLOYMENT_TYPE_RE.search(text)
+    if not match:
+        return "Full-time"
+    return _ADMIN_EMPLOYMENT_TYPE_MAP.get(match.group(0).lower(), "Full-time")
+
+
+def _admin_salary_range(pay):
+    if not pay:
+        return None, None
+    numbers = [float(n.replace(",", "")) for n in _ADMIN_SALARY_NUM_RE.findall(pay)]
+    if not numbers:
+        return None, None
+    if "k" in pay.lower():
+        numbers = [n * 1000 for n in numbers]
+    values = [int(n) for n in numbers]
+    return min(values), max(values)
+
+
+def _admin_build_description(row):
+    parts = [row.get("About the job") or row.get("Summary", "")]
+    if row.get("Responsibilities"):
+        parts.append("Responsibilities:\n" + row["Responsibilities"])
+    if row.get("Requirements"):
+        parts.append("Requirements:\n" + row["Requirements"])
+    if row.get("Benefits"):
+        parts.append("Benefits:\n" + row["Benefits"])
+    return "\n\n".join(part for part in parts if part).strip()
+
+
+def row_to_admin_job_payload(row):
+    """Maps one scraped row (see FIELDNAMES) onto the admin API's job-creation
+    body shape: {company, role, platform, location, remote, salaryMin, salaryMax,
+    seniority, visaSponsorship, employmentType, description}."""
+    title = (row.get("Job Title") or "").strip()
+    company = (row.get("Company") or "").strip()
+    if not title or not company:
+        return None
+
+    location = row.get("Location") or ""
+    description = _admin_build_description(row)
+    salary_min, salary_max = _admin_salary_range(row.get("Pay", ""))
+    combined_text = f"{title} {description}"
+
+    return {
+        "company": company,
+        "role": title,
+        "platform": row.get("Portal", ""),
+        "location": location,
+        "remote": "remote" in location.lower(),
+        "salaryMin": salary_min,
+        "salaryMax": salary_max,
+        "seniority": _admin_infer_seniority(title),
+        "visaSponsorship": bool(_ADMIN_VISA_RE.search(combined_text)),
+        "employmentType": _admin_infer_employment_type(combined_text),
+        "description": description or title,
+    }
+
+
+def post_rows_to_admin_api(rows, url=None, token=None, timeout=None):
+    """POSTs each scraped row individually to the admin job-creation API.
+
+    Unlike post_rows_to_backend (which batches rows into the internal AI
+    engine's /jobs/ingest shape), this API takes one job object per request
+    with Bearer auth. Returns (jobs_sent, jobs_failed).
+    """
+    url = url or ADMIN_API_URL
+    if not url:
+        print("  [skip] ADMIN_API_URL not set - skipping admin API upload "
+              "(rows were still written to the output CSV)")
+        return 0, 0
+
+    token = token if token is not None else ADMIN_API_TOKEN
+    timeout = timeout or ADMIN_API_TIMEOUT
+    headers = {"Content-Type": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+
+    sent, failed = 0, 0
+    for row in rows:
+        payload = row_to_admin_job_payload(row)
+        if payload is None:
+            continue
+        try:
+            resp = requests.post(url, json=payload, headers=headers, timeout=timeout)
+            if resp.ok:
+                sent += 1
+            else:
+                failed += 1
+                print(f"  [admin-api][warn] {payload['role']!r} @ {payload['company']!r} "
+                      f"failed: {resp.status_code} {resp.text[:300]}", file=sys.stderr)
+        except requests.RequestException as e:
+            failed += 1
+            print(f"  [admin-api][warn] {payload['role']!r} request error: {e}", file=sys.stderr)
+        time.sleep(REQUEST_DELAY)
+
+    print(f"  [admin-api] {sent} job(s) posted successfully, {failed} failed "
+          f"(of {sent + failed} attempted)")
+    return sent, failed
+
+
+def run(csv_path, out_path, limit_per_portal, only=None, post_to_backend=True, post_to_admin=True):
     portals = load_portals(csv_path)
     all_rows = []
     for p in portals:
@@ -1167,6 +1302,9 @@ def run(csv_path, out_path, limit_per_portal, only=None, post_to_backend=True):
     if post_to_backend:
         post_rows_to_backend(all_rows)
 
+    if post_to_admin:
+        post_rows_to_admin_api(all_rows)
+
     return all_rows
 
 
@@ -1178,11 +1316,14 @@ def main():
     parser.add_argument("--only", nargs="*", default=None, help="restrict to these portal names")
     parser.add_argument("--no-post-backend", action="store_true",
                          help="skip posting to BACKEND_API_URL even if it's configured")
+    parser.add_argument("--no-post-admin", action="store_true",
+                         help="skip posting to ADMIN_API_URL even if it's configured")
     args = parser.parse_args()
     run(
         args.portals_csv, args.out, args.limit,
         set(args.only) if args.only else None,
         post_to_backend=not args.no_post_backend,
+        post_to_admin=not args.no_post_admin,
     )
 
 

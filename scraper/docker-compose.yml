@@ -1,0 +1,10 @@
+name: job-scraper
+
+services:
+  scraper:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./output:/app/output

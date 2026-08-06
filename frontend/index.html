@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ApplyForMe AI Engine — Test Console</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --panel-2: #1e222b;
+    --border: #2a2f3a;
+    --text: #e6e8eb;
+    --muted: #8b93a1;
+    --accent: #6ea8fe;
+    --accent-2: #4c7fd9;
+    --good: #4caf7d;
+    --bad: #e5636b;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 20px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    flex-wrap: wrap;
+  }
+  header h1 {
+    font-size: 16px;
+    margin: 0;
+    white-space: nowrap;
+  }
+  header input {
+    flex: 1;
+    min-width: 220px;
+  }
+  #status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--muted);
+    flex-shrink: 0;
+  }
+  #status-dot.ok { background: var(--good); }
+  #status-dot.bad { background: var(--bad); }
+  #status-text { font-size: 12px; color: var(--muted); white-space: nowrap; }
+
+  .layout { display: flex; min-height: calc(100vh - 57px); }
+  nav {
+    width: 190px;
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    padding: 10px 0;
+    flex-shrink: 0;
+  }
+  nav button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 10px 18px;
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-size: 13px;
+    cursor: pointer;
+    border-left: 3px solid transparent;
+  }
+  nav button:hover { color: var(--text); background: var(--panel-2); }
+  nav button.active {
+    color: var(--text);
+    border-left-color: var(--accent);
+    background: var(--panel-2);
+    font-weight: 600;
+  }
+
+  main { flex: 1; padding: 24px; max-width: 900px; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 18px;
+  }
+  .card h2 { margin: 0 0 4px; font-size: 15px; }
+  .card p.hint { margin: 0 0 16px; color: var(--muted); font-size: 12.5px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+  .field { flex: 1; min-width: 160px; display: flex; flex-direction: column; gap: 4px; }
+  .field label { font-size: 11.5px; color: var(--muted); }
+  input, select, textarea {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: inherit;
+  }
+  input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent); }
+  textarea { resize: vertical; min-height: 60px; }
+  button.action {
+    background: var(--accent-2);
+    color: white;
+    border: none;
+    padding: 9px 16px;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    font-weight: 600;
+  }
+  button.action:hover { background: var(--accent); }
+  button.action:disabled { opacity: 0.5; cursor: default; }
+  button.secondary {
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 9px 14px;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  pre.output {
+    background: #0b0d11;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+    font-size: 12px;
+    max-height: 420px;
+    overflow: auto;
+    margin-top: 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  pre.output.error { border-color: var(--bad); color: #ff9ea3; }
+  .job-list { display: grid; gap: 10px; margin-top: 8px; }
+  .job-item {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    font-size: 13px;
+  }
+  .job-item .title { font-weight: 600; }
+  .job-item .meta { color: var(--muted); font-size: 11.5px; margin-top: 4px; }
+  .job-item .skills { margin-top: 6px; font-size: 11.5px; }
+  .tag {
+    display: inline-block;
+    background: #26304a;
+    color: var(--accent);
+    border-radius: 4px;
+    padding: 2px 6px;
+    margin: 2px 3px 0 0;
+    font-size: 11px;
+  }
+  .use-btn {
+    margin-top: 8px;
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--accent);
+    padding: 4px 10px;
+    border-radius: 5px;
+    font-size: 11.5px;
+    cursor: pointer;
+  }
+  .badge {
+    display: inline-block;
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: var(--panel-2);
+    color: var(--muted);
+    margin-left: 8px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>ApplyForMe · Test Console</h1>
+  <input id="base-url" value="http://localhost:8010" spellcheck="false">
+  <span id="status-dot"></span>
+  <span id="status-text">checking...</span>
+</header>
+
+<div class="layout">
+  <nav id="nav">
+    <button data-tab="candidate" class="active">1. Candidate</button>
+    <button data-tab="resume">2. Resume Upload</button>
+    <button data-tab="jobs">3. Job Postings</button>
+    <button data-tab="match">4. Job Match</button>
+    <button data-tab="health">5. Career Health</button>
+    <button data-tab="copilot">6. Copilot</button>
+  </nav>
+
+  <main>
+
+    <!-- CANDIDATE -->
+    <section id="tab-candidate" class="tab">
+      <div class="card">
+        <h2>Create candidate <span class="badge">POST /candidates</span></h2>
+        <p class="hint">Bootstraps a User + CandidateProfile. No auth in this phase — any email works.</p>
+        <div class="row">
+          <div class="field"><label>Email</label><input id="c-email" value="test.candidate@example.com"></div>
+          <div class="field"><label>Full name</label><input id="c-name" value="Jamie Rivera"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Target role</label><input id="c-role" value="Backend Engineer"></div>
+          <div class="field"><label>Target industry</label><input id="c-industry" value="Software"></div>
+          <div class="field"><label>Experience level</label><input id="c-explevel" value="mid"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Location</label><input id="c-location" value="Austin, TX"></div>
+          <div class="field"><label>Visa status</label><input id="c-visa" value="citizen"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Desired salary min</label><input id="c-salmin" type="number" value="100000"></div>
+          <div class="field"><label>Desired salary max</label><input id="c-salmax" type="number" value="140000"></div>
+        </div>
+        <button class="action" onclick="createCandidate()">Create candidate</button>
+        <pre class="output" id="out-candidate">—</pre>
+      </div>
+    </section>
+
+    <!-- RESUME -->
+    <section id="tab-resume" class="tab" style="display:none">
+      <div class="card">
+        <h2>Analyze resume <span class="badge">POST /resume/analyze</span></h2>
+        <p class="hint">Multipart upload → Resume Intelligence Engine. Requires a valid candidateId and calls the LLM for recommendations.</p>
+        <div class="row">
+          <div class="field"><label>Candidate ID</label><input id="r-candidate-id" type="number"></div>
+          <div class="field"><label>Target role</label><input id="r-role" value="Backend Engineer"></div>
+          <div class="field"><label>Target industry</label><input id="r-industry" value="Software"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Resume file (PDF/DOCX)</label><input id="r-file" type="file"></div>
+        </div>
+        <button class="action" onclick="analyzeResume()">Upload &amp; analyze</button>
+        <pre class="output" id="out-resume">—</pre>
+      </div>
+    </section>
+
+    <!-- JOBS -->
+    <section id="tab-jobs" class="tab" style="display:none">
+      <div class="card">
+        <h2>Active job postings <span class="badge">GET /jobs</span></h2>
+        <p class="hint">Sample data is seeded via <code>backend/scripts/seed_job_postings.py</code>. Click "Use" on a job to load its ID into the Job Match tab.</p>
+        <button class="action" onclick="loadJobs()">Refresh jobs</button>
+        <div class="job-list" id="job-list"></div>
+        <pre class="output" id="out-jobs" style="display:none"></pre>
+      </div>
+    </section>
+
+    <!-- MATCH -->
+    <section id="tab-match" class="tab" style="display:none">
+      <div class="card">
+        <h2>Match one job <span class="badge">POST /jobs/match</span></h2>
+        <p class="hint">Deterministic scoring engine + LLM explanation.</p>
+        <div class="row">
+          <div class="field"><label>Candidate ID</label><input id="m-candidate-id" type="number"></div>
+          <div class="field"><label>Job Posting ID</label><input id="m-job-id" type="number"></div>
+        </div>
+        <button class="action" onclick="matchOneJob()">Match</button>
+        <pre class="output" id="out-match">—</pre>
+      </div>
+      <div class="card">
+        <h2>Match against all active jobs <span class="badge">GET /jobs/matches/&#123;candidate_id&#125;</span></h2>
+        <p class="hint">Ranks the candidate against every active job posting in the system.</p>
+        <div class="row">
+          <div class="field"><label>Candidate ID</label><input id="m-all-candidate-id" type="number"></div>
+        </div>
+        <button class="action" onclick="matchAllJobs()">Match all</button>
+        <pre class="output" id="out-match-all">—</pre>
+      </div>
+    </section>
+
+    <!-- HEALTH -->
+    <section id="tab-health" class="tab" style="display:none">
+      <div class="card">
+        <h2>Career health <span class="badge">GET /career-health/&#123;candidate_id&#125;</span></h2>
+        <div class="row">
+          <div class="field"><label>Candidate ID</label><input id="h-candidate-id" type="number"></div>
+        </div>
+        <button class="action" onclick="getCareerHealth()">Get score</button>
+        <pre class="output" id="out-health">—</pre>
+      </div>
+    </section>
+
+    <!-- COPILOT -->
+    <section id="tab-copilot" class="tab" style="display:none">
+      <div class="card">
+        <h2>Career copilot <span class="badge">POST /copilot/ask</span></h2>
+        <p class="hint">RAG-grounded assistant over the candidate's resume chunks. Run resume analysis first so embeddings exist.</p>
+        <div class="row">
+          <div class="field"><label>Candidate ID</label><input id="cp-candidate-id" type="number"></div>
+          <div class="field"><label>Conversation ID (optional)</label><input id="cp-conv-id" type="number"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Question</label><textarea id="cp-question">What roles am I best suited for based on my resume?</textarea></div>
+        </div>
+        <button class="action" onclick="askCopilot()">Ask</button>
+        <pre class="output" id="out-copilot">—</pre>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+function baseUrl() { return $('base-url').value.replace(/\/$/, ''); }
+
+document.querySelectorAll('#nav button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#nav button').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab').forEach(t => t.style.display = 'none');
+    btn.classList.add('active');
+    $('tab-' + btn.dataset.tab).style.display = 'block';
+  });
+});
+
+async function checkHealth() {
+  const dot = $('status-dot'), text = $('status-text');
+  try {
+    const res = await fetch(baseUrl() + '/health');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    dot.className = 'ok';
+    text.textContent = 'API reachable';
+  } catch (e) {
+    dot.className = 'bad';
+    text.textContent = 'API unreachable — check base URL / CORS / docker';
+  }
+}
+checkHealth();
+setInterval(checkHealth, 15000);
+$('base-url').addEventListener('change', checkHealth);
+
+function render(elId, data, isError) {
+  const el = $(elId);
+  el.classList.toggle('error', !!isError);
+  el.textContent = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+}
+
+async function call(method, path, body, isFormData) {
+  const opts = { method, headers: {} };
+  if (body && !isFormData) {
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify(body);
+  } else if (body && isFormData) {
+    opts.body = body;
+  }
+  const res = await fetch(baseUrl() + path, opts);
+  let data;
+  try { data = await res.json(); } catch { data = await res.text(); }
+  if (!res.ok) {
+    const err = new Error('HTTP ' + res.status);
+    err.data = data;
+    throw err;
+  }
+  return data;
+}
+
+function propagateCandidateId(id) {
+  ['r-candidate-id', 'm-candidate-id', 'm-all-candidate-id', 'h-candidate-id', 'cp-candidate-id']
+    .forEach(fid => { $(fid).value = id; });
+}
+
+async function createCandidate() {
+  try {
+    const body = {
+      email: $('c-email').value,
+      full_name: $('c-name').value,
+      target_role: $('c-role').value || null,
+      target_industry: $('c-industry').value || null,
+      experience_level: $('c-explevel').value || null,
+      visa_status: $('c-visa').value || null,
+      location: $('c-location').value || null,
+      desired_salary_min: $('c-salmin').value ? Number($('c-salmin').value) : null,
+      desired_salary_max: $('c-salmax').value ? Number($('c-salmax').value) : null,
+    };
+    const data = await call('POST', '/candidates', body);
+    render('out-candidate', data);
+    if (data.candidateId) propagateCandidateId(data.candidateId);
+  } catch (e) {
+    render('out-candidate', e.data || e.message, true);
+  }
+}
+
+async function analyzeResume() {
+  try {
+    const fileInput = $('r-file');
+    if (!fileInput.files.length) { render('out-resume', 'Choose a file first.', true); return; }
+    const fd = new FormData();
+    fd.append('candidate_id', $('r-candidate-id').value);
+    fd.append('target_role', $('r-role').value);
+    fd.append('target_industry', $('r-industry').value);
+    fd.append('file', fileInput.files[0]);
+    const data = await call('POST', '/resume/analyze', fd, true);
+    render('out-resume', data);
+  } catch (e) {
+    render('out-resume', e.data || e.message, true);
+  }
+}
+
+async function loadJobs() {
+  try {
+    const jobs = await call('GET', '/jobs');
+    const list = $('job-list');
+    list.innerHTML = '';
+    jobs.forEach(j => {
+      const div = document.createElement('div');
+      div.className = 'job-item';
+      div.innerHTML = `
+        <div class="title">#${j.id} — ${j.title} @ ${j.company}</div>
+        <div class="meta">${j.location || 'n/a'} · ${j.remote ? 'remote' : 'onsite'} · ${j.seniority || 'n/a'}
+          · $${j.salaryMin ?? '?'}–$${j.salaryMax ?? '?'} · visa: ${j.visaSponsorship ? 'yes' : 'no'}</div>
+        <div class="skills">${(j.requiredSkills || []).map(s => `<span class="tag">${s}</span>`).join('')}</div>
+        <button class="use-btn" onclick="useJob(${j.id})">Use job #${j.id} in Job Match tab</button>
+      `;
+      list.appendChild(div);
+    });
+    if (!jobs.length) list.innerHTML = '<p class="hint">No jobs found — run backend/scripts/seed_job_postings.py.</p>';
+  } catch (e) {
+    render('out-jobs', e.data || e.message, true);
+    $('out-jobs').style.display = 'block';
+  }
+}
+
+function useJob(id) {
+  $('m-job-id').value = id;
+  document.querySelector('[data-tab="match"]').click();
+}
+
+async function matchOneJob() {
+  try {
+    const body = {
+      candidate_id: Number($('m-candidate-id').value),
+      job_posting_id: Number($('m-job-id').value),
+    };
+    const data = await call('POST', '/jobs/match', body);
+    render('out-match', data);
+  } catch (e) {
+    render('out-match', e.data || e.message, true);
+  }
+}
+
+async function matchAllJobs() {
+  try {
+    const id = $('m-all-candidate-id').value;
+    const data = await call('GET', `/jobs/matches/${id}`);
+    render('out-match-all', data);
+  } catch (e) {
+    render('out-match-all', e.data || e.message, true);
+  }
+}
+
+async function getCareerHealth() {
+  try {
+    const id = $('h-candidate-id').value;
+    const data = await call('GET', `/career-health/${id}`);
+    render('out-health', data);
+  } catch (e) {
+    render('out-health', e.data || e.message, true);
+  }
+}
+
+async function askCopilot() {
+  try {
+    const body = {
+      candidate_id: Number($('cp-candidate-id').value),
+      question: $('cp-question').value,
+      conversation_id: $('cp-conv-id').value ? Number($('cp-conv-id').value) : null,
+    };
+    const data = await call('POST', '/copilot/ask', body);
+    render('out-copilot', data);
+    if (data.conversation_id || data.conversationId) {
+      $('cp-conv-id').value = data.conversation_id || data.conversationId;
+    }
+  } catch (e) {
+    render('out-copilot', e.data || e.message, true);
+  }
+}
+
+loadJobs();
+</script>
+
+</body>
+</html>

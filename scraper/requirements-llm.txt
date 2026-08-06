@@ -1,0 +1,6 @@
+# Optional: only needed if ENABLE_LLM_REFINEMENT=1 (non-English translation +
+# LLM-based real-job-posting validation). Adds ~2GB of downloads (torch), so
+# it's kept out of the default requirements.txt / Docker image.
+-r requirements.txt
+transformers
+torch

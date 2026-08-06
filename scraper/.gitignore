@@ -1,0 +1,18 @@
+# Virtual Environment
+.venv/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Environment Variables
+.env
+
+# VS Code
+.vscode/
+
+# Output CSVs
+jobs_output.csv
+jobs_output_clean.csv
+jobs_output_fixed.csv
+jobs_output_clean_final.csv

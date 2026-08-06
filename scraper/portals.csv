@@ -1,0 +1,68 @@
+num,portal_name,url,scrape_method,confidence,notes
+1,Remote OK,https://remoteok.com/,api,high,Public JSON API at /api - fully automated
+2,Remotive,https://remotive.com/,api,high,Public JSON API at /api/remote-jobs - fully automated
+3,We Work Remotely,https://weworkremotely.com/,rss,high,Public per-category RSS feeds - fully automated
+4,Jobspresso,https://jobspresso.co/jobs/,generic,medium,No public API found; static-ish HTML, generic scraper attempts it
+5,Adzuna USA,https://www.adzuna.com/,api_key_required,high,Official free API at developer.adzuna.com - needs ADZUNA_APP_ID/ADZUNA_APP_KEY
+6,Jooble USA,https://us.jooble.org/,api_key_required,medium,Official partner API - needs JOOBLE_API_KEY from jooble.org/api/about
+7,USAJOBS,https://www.usajobs.gov/,api_key_required,high,Official API at data.usajobs.gov - needs free Authorization-Key + User-Agent email
+8,SimplyHired,https://www.simplyhired.com/,generic,medium,Heavy bot protection likely; generic scraper best-effort only
+9,Jobcase,https://www.jobcase.com/,generic,low,Mostly login-gated feed; generic scraper unlikely to get full listings
+10,Talent.com,https://www.talent.com/,generic,medium,Generic scraper best-effort
+11,Jora USA,https://us.jora.com/,generic,medium,Generic scraper best-effort
+12,Nexxt,https://www.nexxt.com/jobs,generic,medium,Generic scraper best-effort
+13,Job.com,https://www.job.com/,generic,medium,Generic scraper best-effort
+14,LocalJobNetwork,https://www.localjobnetwork.com/jobs,generic,medium,Generic scraper best-effort
+15,America's Job Exchange,https://www.americasjobexchange.com/,generic,medium,Generic scraper best-effort
+16,LinkUp,https://www.linkup.com/,generic,low,Aggregates employer sites; JS-heavy search UI, likely needs headless browser
+17,CareerBliss,https://www.careerbliss.com/,generic,medium,Generic scraper best-effort
+18,Learn4Good Jobs,https://www.learn4good.com/jobs/,generic,medium,Generic scraper best-effort; static HTML, usually scrape-friendly
+19,College Recruiter,https://www.collegerecruiter.com/,generic,medium,Generic scraper best-effort
+20,AfterCollege,https://www.aftercollege.com/,generic,low,Mostly requires account login to view full postings
+21,CoolWorks,https://www.coolworks.com/,generic,medium,Generic scraper best-effort; static HTML site
+22,Built In,https://builtin.com/jobs,generic,low,Next.js/React app, needs JS rendering (Playwright/Selenium) for reliable results
+23,Built In NYC,https://www.builtinnyc.com/jobs,generic,low,Same platform as Built In - JS rendering needed
+24,Built In Austin,https://www.builtinaustin.com/jobs,generic,low,Same platform as Built In - JS rendering needed
+25,Built In Chicago,https://www.builtinchicago.org/jobs,generic,low,Same platform as Built In - JS rendering needed
+26,Built In Seattle,https://www.builtinseattle.com/jobs,generic,low,Same platform as Built In - JS rendering needed
+27,Built In Boston,https://www.builtinboston.com/jobs,generic,low,Same platform as Built In - JS rendering needed
+28,Y Combinator Jobs,https://www.workatastartup.com/,generic,low,Full listings require a logged-in YC account
+29,Hacker News Who's Hiring,https://news.ycombinator.com/jobs,api,high,Uses public Algolia HN Search API - fully automated
+30,TechFetch,https://www.techfetch.com/,generic,medium,Generic scraper best-effort
+31,DevITJobs US,https://www.devitjobs.us/,generic,medium,Generic scraper best-effort
+32,JS Remotely,https://jsremotely.com/jobs,generic,medium,Generic scraper best-effort
+33,GitHub Jobs Archive,https://github.com/,dead,high,GitHub Jobs was discontinued by GitHub in 2018/2021 - no live source; skipped
+34,Startup.jobs,https://startup.jobs/,generic,medium,Generic scraper best-effort
+35,VentureLoop,https://ventureloop.com/,generic,low,Site activity/uptime uncertain; verify manually before relying on it
+36,TechCareers,https://www.techcareers.com/jobs,generic,medium,Generic scraper best-effort
+37,Remote.co,https://remote.co/remote-jobs/,generic,medium,Generic scraper best-effort
+38,Working Nomads,https://www.workingnomads.com/jobs,rss,high,Public RSS feed at /jobs.rss - fully automated
+39,Virtual Vocations,https://www.virtualvocations.com/,generic,low,Most job detail is behind a free-signup paywall
+40,SkipTheDrive,https://www.skipthedrive.com/,generic,medium,Generic scraper best-effort
+41,Pangian,https://pangian.com/job-board/,generic,medium,Generic scraper best-effort
+42,Himalayas,https://himalayas.app/jobs,generic,medium,Has an internal JSON API but it's undocumented/unstable; generic scraper used instead
+43,NoDesk,https://nodesk.co/remote-jobs/,rss,medium,Public RSS feed at /remote-jobs/feed/ - fully automated
+44,Dynamite Jobs,https://dynamitejobs.com/,generic,medium,Generic scraper best-effort
+45,GovernmentJobs,https://www.governmentjobs.com/,generic,medium,Generic scraper best-effort
+46,Federal Reserve Careers,https://www.federalreserve.gov/careers.htm,generic,medium,Generic scraper best-effort; low posting volume
+47,FBI Jobs,https://fbijobs.gov/,generic,medium,Generic scraper best-effort
+48,CIA Careers,https://www.cia.gov/careers/,generic,low,CIA site restricts automated access; expect it to be blocked
+49,NASA Careers,https://www.nasa.gov/careers/,generic,medium,Generic scraper best-effort (actual jobs hosted on USAJOBS)
+50,USPS Careers,https://about.usps.com/careers/welcome.htm,generic,medium,Generic scraper best-effort
+51,TSA Careers,https://jobs.tsa.gov/,generic,medium,Generic scraper best-effort
+52,Department of State Careers,https://careers.state.gov/,generic,medium,Generic scraper best-effort
+53,DOE Careers,https://www.energy.gov/careers,generic,medium,Generic scraper best-effort
+54,CDC Careers,https://jobs.cdc.gov/,generic,medium,Generic scraper best-effort
+55,NIH Careers,https://hr.nih.gov/working-nih/jobs,generic,medium,Generic scraper best-effort (actual jobs hosted on USAJOBS)
+56,VA Careers,https://vacareers.va.gov/,generic,medium,Generic scraper best-effort
+57,PracticeLink,https://www.practicelink.com/,generic,medium,Generic scraper best-effort
+58,MedJobCafe,https://www.medjobcafe.com/,generic,medium,Generic scraper best-effort
+59,HospitalRecruiting,https://www.hospitalrecruiting.com/,generic,medium,Generic scraper best-effort
+60,LocumTenens.com,https://www.locumtenens.com/,generic,medium,Generic scraper best-effort
+61,BioSpace,https://www.biospace.com/jobs,generic,medium,Generic scraper best-effort
+62,PracticeMatch,https://www.practicematch.com/,generic,medium,Generic scraper best-effort
+63,RNnetwork,https://www.rnnetwork.com/,generic,medium,Generic scraper best-effort
+64,FinancialJobBank,https://www.financialjobbank.com/,generic,low,Small niche board; structure unverified
+65,AccountingJobsToday,https://www.accountingjobstoday.com/,generic,low,Small niche board; structure unverified
+66,Selby Jennings,https://www.selbyjennings.com/,generic,low,Recruiting-agency site, likely React/JS-heavy
+67,Wall Street Oasis Jobs,https://www.wallstreetoasis.com/jobs,generic,medium,Generic scraper best-effort

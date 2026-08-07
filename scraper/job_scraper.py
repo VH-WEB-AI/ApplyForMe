@@ -1277,10 +1277,10 @@ def post_rows_to_admin_api(rows, url=None, token=None, timeout=None, state_path=
     """POSTs each scraped row individually to the admin job-creation API.
 
     Unlike post_rows_to_backend (which batches rows into the internal AI
-    engine's /jobs/ingest shape), this API takes one job object per request
-    with Bearer auth and has no known server-side dedup, so a local record of
-    already-sent jobs (state_path) is used to skip repeats across runs.
-    Returns (jobs_sent, jobs_skipped, jobs_failed).
+    engine's /jobs/ingest shape), this API takes one job object per request,
+    authenticated via the x-jobs-key header, and has no known server-side
+    dedup, so a local record of already-sent jobs (state_path) is used to
+    skip repeats across runs. Returns (jobs_sent, jobs_skipped, jobs_failed).
     """
     url = url or ADMIN_API_URL
     if not url:
@@ -1293,7 +1293,7 @@ def post_rows_to_admin_api(rows, url=None, token=None, timeout=None, state_path=
     state_path = state_path or ADMIN_API_STATE_PATH
     headers = {"Content-Type": "application/json"}
     if token:
-        headers["Authorization"] = f"Bearer {token}"
+        headers["x-jobs-key"] = token
 
     sent_keys = _load_admin_sent_keys(state_path)
     sent, skipped, failed = 0, 0, 0

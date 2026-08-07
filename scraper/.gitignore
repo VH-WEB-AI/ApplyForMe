@@ -16,3 +16,6 @@ jobs_output.csv
 jobs_output_clean.csv
 jobs_output_fixed.csv
 jobs_output_clean_final.csv
+
+# Local dedup state for the admin-API upload path
+admin_sent_jobs.json

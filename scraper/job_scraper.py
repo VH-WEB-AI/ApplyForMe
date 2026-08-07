@@ -103,6 +103,11 @@ BACKEND_API_TIMEOUT = int(os.environ.get("BACKEND_API_TIMEOUT", "30"))
 ADMIN_API_URL = os.environ.get("ADMIN_API_URL", "").strip()
 ADMIN_API_TOKEN = os.environ.get("ADMIN_API_TOKEN", "").strip()
 ADMIN_API_TIMEOUT = int(os.environ.get("ADMIN_API_TIMEOUT", "30"))
+# Local record of jobs already sent to the admin API, so re-running the scraper
+# doesn't resend the same postings — the admin API itself has no known dedup behavior.
+ADMIN_API_STATE_PATH = os.environ.get(
+    "ADMIN_API_STATE_PATH", os.path.join(os.path.dirname(__file__), "admin_sent_jobs.json")
+)
 
 LLM_MODEL = os.environ.get("LLM_MODEL", "google/gemma-3-270m")
 LLM_MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", "512"))
@@ -1206,27 +1211,59 @@ def row_to_admin_job_payload(row):
     }
 
 
-def post_rows_to_admin_api(rows, url=None, token=None, timeout=None):
+def _admin_dedup_key(row):
+    """Prefers the scraped URL (most specific); falls back to company+role
+    for portals where a stable per-posting URL isn't available."""
+    url = (row.get("URL") or "").strip().lower()
+    if url:
+        return url
+    company = (row.get("Company") or "").strip().lower()
+    title = (row.get("Job Title") or "").strip().lower()
+    return f"{company}::{title}"
+
+
+def _load_admin_sent_keys(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return set(json.load(f))
+    except (FileNotFoundError, ValueError):
+        return set()
+
+
+def _save_admin_sent_keys(path, keys):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(sorted(keys), f)
+
+
+def post_rows_to_admin_api(rows, url=None, token=None, timeout=None, state_path=None):
     """POSTs each scraped row individually to the admin job-creation API.
 
     Unlike post_rows_to_backend (which batches rows into the internal AI
     engine's /jobs/ingest shape), this API takes one job object per request
-    with Bearer auth. Returns (jobs_sent, jobs_failed).
+    with Bearer auth and has no known server-side dedup, so a local record of
+    already-sent jobs (state_path) is used to skip repeats across runs.
+    Returns (jobs_sent, jobs_skipped, jobs_failed).
     """
     url = url or ADMIN_API_URL
     if not url:
         print("  [skip] ADMIN_API_URL not set - skipping admin API upload "
               "(rows were still written to the output CSV)")
-        return 0, 0
+        return 0, 0, 0
 
     token = token if token is not None else ADMIN_API_TOKEN
     timeout = timeout or ADMIN_API_TIMEOUT
+    state_path = state_path or ADMIN_API_STATE_PATH
     headers = {"Content-Type": "application/json"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
 
-    sent, failed = 0, 0
+    sent_keys = _load_admin_sent_keys(state_path)
+    sent, skipped, failed = 0, 0, 0
     for row in rows:
+        key = _admin_dedup_key(row)
+        if key in sent_keys:
+            skipped += 1
+            continue
         payload = row_to_admin_job_payload(row)
         if payload is None:
             continue
@@ -1234,6 +1271,8 @@ def post_rows_to_admin_api(rows, url=None, token=None, timeout=None):
             resp = requests.post(url, json=payload, headers=headers, timeout=timeout)
             if resp.ok:
                 sent += 1
+                sent_keys.add(key)
+                _save_admin_sent_keys(state_path, sent_keys)
             else:
                 failed += 1
                 print(f"  [admin-api][warn] {payload['role']!r} @ {payload['company']!r} "
@@ -1243,9 +1282,9 @@ def post_rows_to_admin_api(rows, url=None, token=None, timeout=None):
             print(f"  [admin-api][warn] {payload['role']!r} request error: {e}", file=sys.stderr)
         time.sleep(REQUEST_DELAY)
 
-    print(f"  [admin-api] {sent} job(s) posted successfully, {failed} failed "
-          f"(of {sent + failed} attempted)")
-    return sent, failed
+    print(f"  [admin-api] {sent} job(s) posted, {skipped} already sent previously, "
+          f"{failed} failed (of {sent + skipped + failed} scraped)")
+    return sent, skipped, failed
 
 
 def run(csv_path, out_path, limit_per_portal, only=None, post_to_backend=True, post_to_admin=True):

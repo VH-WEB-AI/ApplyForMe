@@ -79,6 +79,40 @@ except ImportError:
     HfApi = None
     HUGGINGFACE_HUB_AVAILABLE = False
 
+_SKILLS_TAXONOMY_PATH = os.path.join(os.path.dirname(__file__), "data", "skills_taxonomy.json")
+_skills_taxonomy_lookup = None
+
+
+def _load_skills_taxonomy():
+    """Lazy-loaded {alias: canonical_name} lookup, mirroring backend/app/services/
+    skill_extractor.py — duplicated (not imported) so the scraper stays a standalone
+    deployable with no dependency on the backend package."""
+    global _skills_taxonomy_lookup
+    if _skills_taxonomy_lookup is not None:
+        return _skills_taxonomy_lookup
+    with open(_SKILLS_TAXONOMY_PATH, encoding="utf-8") as f:
+        raw = json.load(f)
+    lookup = {}
+    for canonical, aliases in raw.items():
+        for alias in aliases:
+            lookup[alias.lower()] = canonical
+    _skills_taxonomy_lookup = lookup
+    return lookup
+
+
+def extract_required_skills(text):
+    """Finds every taxonomy skill mentioned in `text`, canonical names, de-duplicated."""
+    if not text:
+        return []
+    lookup = _load_skills_taxonomy()
+    lower_text = text.lower()
+    found = set()
+    for alias, canonical in lookup.items():
+        pattern = r"(?<![a-z0-9+#.])" + re.escape(alias) + r"(?![a-z0-9+#])"
+        if re.search(pattern, lower_text):
+            found.add(canonical)
+    return sorted(found)
+
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; JobResearchBot/1.0; "
                   "+https://example.com/bot-info)"
@@ -1185,7 +1219,8 @@ def _admin_build_description(row):
 def row_to_admin_job_payload(row):
     """Maps one scraped row (see FIELDNAMES) onto the admin API's job-creation
     body shape: {company, role, platform, location, remote, salaryMin, salaryMax,
-    seniority, visaSponsorship, employmentType, description}."""
+    seniority, visaSponsorship, employmentType, description, requiredSkills,
+    sourceLink, active}."""
     title = (row.get("Job Title") or "").strip()
     company = (row.get("Company") or "").strip()
     if not title or not company:
@@ -1208,6 +1243,9 @@ def row_to_admin_job_payload(row):
         "visaSponsorship": bool(_ADMIN_VISA_RE.search(combined_text)),
         "employmentType": _admin_infer_employment_type(combined_text),
         "description": description or title,
+        "requiredSkills": extract_required_skills(combined_text),
+        "sourceLink": row.get("URL", ""),
+        "active": True,
     }
 
 
@@ -1287,7 +1325,7 @@ def post_rows_to_admin_api(rows, url=None, token=None, timeout=None, state_path=
     return sent, skipped, failed
 
 
-def run(csv_path, out_path, limit_per_portal, only=None, post_to_backend=True, post_to_admin=True):
+def run(csv_path, out_path, limit_per_portal, only=None, post_to_backend=False, post_to_admin=True):
     portals = load_portals(csv_path)
     all_rows = []
     for p in portals:
@@ -1353,15 +1391,16 @@ def main():
     parser.add_argument("--out", default=os.path.join(os.path.dirname(__file__), "jobs_output.csv"))
     parser.add_argument("--limit", type=int, default=25, help="max jobs to pull per portal")
     parser.add_argument("--only", nargs="*", default=None, help="restrict to these portal names")
-    parser.add_argument("--no-post-backend", action="store_true",
-                         help="skip posting to BACKEND_API_URL even if it's configured")
+    parser.add_argument("--post-backend", action="store_true",
+                         help="also post to BACKEND_API_URL (our own AI engine) - off by default, "
+                              "job data now flows to ADMIN_API_URL only")
     parser.add_argument("--no-post-admin", action="store_true",
                          help="skip posting to ADMIN_API_URL even if it's configured")
     args = parser.parse_args()
     run(
         args.portals_csv, args.out, args.limit,
         set(args.only) if args.only else None,
-        post_to_backend=not args.no_post_backend,
+        post_to_backend=args.post_backend,
         post_to_admin=not args.no_post_admin,
     )
 

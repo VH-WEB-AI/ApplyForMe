@@ -1,3 +1,5 @@
+from unittest.mock import MagicMock, patch
+
 import pytest
 from pydantic import BaseModel
 
@@ -5,9 +7,27 @@ from app.services.document_chunking import chunk_text
 from app.services.json_formatter import parse_llm_json
 from app.services.keyword_extractor import extract_keywords, keyword_overlap_score
 from app.services.pii_redaction import redact_pii
-from app.services.resume_parser import identify_sections
+from app.services.resume_parser import extract_text, identify_sections
 from app.services.response_validator import ResponseValidationError, validate_with_retry
 from app.services.skill_extractor import extract_skills, normalize_skill, skill_gap
+
+
+def test_extract_text_strips_nul_bytes_from_pdf():
+    # pdfplumber/pdfminer occasionally return NUL chars for PDFs with malformed
+    # embedded font glyph maps; Postgres text/jsonb columns reject them outright,
+    # so extract_text must sanitize before this reaches the database.
+    page = MagicMock()
+    page.extract_text.return_value = "Jane Doe\x00\nExperience\x00 at Acme Corp"
+    pdf_context = MagicMock()
+    pdf_context.pages = [page]
+    pdf_context.__enter__.return_value = pdf_context
+    pdf_context.__exit__.return_value = False
+
+    with patch("app.services.resume_parser.pdfplumber.open", return_value=pdf_context):
+        text = extract_text(b"fake-pdf-bytes", "resume.pdf")
+
+    assert "\x00" not in text
+    assert text == "Jane Doe\nExperience at Acme Corp"
 
 
 def test_extract_skills_finds_canonical_names():

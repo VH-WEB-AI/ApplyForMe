@@ -30,10 +30,15 @@ class ParsedResume:
 def extract_text(file_bytes: bytes, filename: str) -> str:
     lower = filename.lower()
     if lower.endswith(".pdf"):
-        return _extract_pdf_text(file_bytes)
-    if lower.endswith(".docx"):
-        return _extract_docx_text(file_bytes)
-    raise ValueError(f"Unsupported resume file type: {filename}")
+        text = _extract_pdf_text(file_bytes)
+    elif lower.endswith(".docx"):
+        text = _extract_docx_text(file_bytes)
+    else:
+        raise ValueError(f"Unsupported resume file type: {filename}")
+    # pdfplumber/pdfminer occasionally emit NUL (0x00) chars for PDFs with malformed
+    # embedded font glyph maps; Postgres text/jsonb columns reject NUL bytes outright,
+    # so strip them here before this text reaches any downstream storage.
+    return text.replace("\x00", "")
 
 
 def _extract_pdf_text(file_bytes: bytes) -> str:

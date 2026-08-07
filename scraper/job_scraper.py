@@ -139,9 +139,12 @@ ADMIN_API_TOKEN = os.environ.get("ADMIN_API_TOKEN", "").strip()
 ADMIN_API_TIMEOUT = int(os.environ.get("ADMIN_API_TIMEOUT", "30"))
 # Local record of jobs already sent to the admin API, so re-running the scraper
 # doesn't resend the same postings — the admin API itself has no known dedup behavior.
-ADMIN_API_STATE_PATH = os.environ.get(
-    "ADMIN_API_STATE_PATH", os.path.join(os.path.dirname(__file__), "admin_sent_jobs.json")
+ADMIN_API_STATE_PATH = os.environ.get("ADMIN_API_STATE_PATH", "").strip() or os.path.join(
+    os.path.dirname(__file__), "admin_sent_jobs.json"
 )
+# The admin API rejects descriptions over 8000 chars (seen live: "description must be
+# shorter than or equal to 8000 characters"); trim with margin rather than hit the exact limit.
+ADMIN_API_DESCRIPTION_MAX_LEN = 7900
 
 LLM_MODEL = os.environ.get("LLM_MODEL", "google/gemma-3-270m")
 LLM_MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", "512"))
@@ -1227,7 +1230,7 @@ def row_to_admin_job_payload(row):
         return None
 
     location = row.get("Location") or ""
-    description = _admin_build_description(row)
+    description = _admin_build_description(row)[:ADMIN_API_DESCRIPTION_MAX_LEN]
     salary_min, salary_max = _admin_salary_range(row.get("Pay", ""))
     combined_text = f"{title} {description}"
 

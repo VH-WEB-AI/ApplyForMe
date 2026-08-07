@@ -39,7 +39,7 @@ services:
       DATABASE_URL: postgresql+psycopg://applyforme:applyforme@postgres:5432/applyforme
       REDIS_URL: redis://redis:6379/0
     ports:
-      - "5059:8000"
+      - "8011:8000"
     depends_on:
       postgres:
         condition: service_healthy

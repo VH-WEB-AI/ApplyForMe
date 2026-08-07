@@ -1252,15 +1252,21 @@ def row_to_admin_job_payload(row):
     }
 
 
-def _admin_dedup_key(row):
-    """Prefers the scraped URL (most specific); falls back to company+role
-    for portals where a stable per-posting URL isn't available."""
+def _admin_dedup_keys(row):
+    """Returns every key that identifies this row as a duplicate: the scraped
+    URL (catches re-scraping the same posting; unprefixed, matching the format
+    already stored by earlier runs) AND company+role (catches the same job
+    cross-posted to multiple portals under different URLs). A row is a
+    duplicate if ANY of its keys was already sent."""
+    keys = []
     url = (row.get("URL") or "").strip().lower()
     if url:
-        return url
+        keys.append(url)
     company = (row.get("Company") or "").strip().lower()
     title = (row.get("Job Title") or "").strip().lower()
-    return f"{company}::{title}"
+    if company and title:
+        keys.append(f"{company}::{title}")
+    return keys
 
 
 def _load_admin_sent_keys(path):
@@ -1301,8 +1307,8 @@ def post_rows_to_admin_api(rows, url=None, token=None, timeout=None, state_path=
     sent_keys = _load_admin_sent_keys(state_path)
     sent, skipped, failed = 0, 0, 0
     for row in rows:
-        key = _admin_dedup_key(row)
-        if key in sent_keys:
+        keys = _admin_dedup_keys(row)
+        if any(k in sent_keys for k in keys):
             skipped += 1
             continue
         payload = row_to_admin_job_payload(row)
@@ -1312,7 +1318,7 @@ def post_rows_to_admin_api(rows, url=None, token=None, timeout=None, state_path=
             resp = requests.post(url, json=payload, headers=headers, timeout=timeout)
             if resp.ok:
                 sent += 1
-                sent_keys.add(key)
+                sent_keys.update(keys)
                 _save_admin_sent_keys(state_path, sent_keys)
             else:
                 failed += 1
@@ -1328,9 +1334,11 @@ def post_rows_to_admin_api(rows, url=None, token=None, timeout=None, state_path=
     return sent, skipped, failed
 
 
-def run(csv_path, out_path, limit_per_portal, only=None, post_to_backend=False, post_to_admin=True):
+def run(csv_path, out_path, limit_per_portal, only=None, post_to_backend=False, post_to_admin=True,
+        admin_post_batch_size=100):
     portals = load_portals(csv_path)
     all_rows = []
+    posted_up_to = 0
     for p in portals:
         name = p["portal_name"]
         method = p["scrape_method"]
@@ -1361,6 +1369,14 @@ def run(csv_path, out_path, limit_per_portal, only=None, post_to_backend=False, 
 
         print(f"  -> {len(rows)} rows")
         all_rows.extend(rows)
+
+        if post_to_admin and (len(all_rows) - posted_up_to) >= admin_post_batch_size:
+            batch = all_rows[posted_up_to:]
+            print(f"  [admin-api] posting batch of {len(batch)} rows "
+                  f"(scraped {len(all_rows)} total so far)")
+            post_rows_to_admin_api(batch)
+            posted_up_to = len(all_rows)
+
         time.sleep(REQUEST_DELAY)
 
     # utf-8-sig writes a BOM, which is what makes Excel (Windows in
@@ -1382,8 +1398,10 @@ def run(csv_path, out_path, limit_per_portal, only=None, post_to_backend=False, 
     if post_to_backend:
         post_rows_to_backend(all_rows)
 
-    if post_to_admin:
-        post_rows_to_admin_api(all_rows)
+    if post_to_admin and len(all_rows) > posted_up_to:
+        final_batch = all_rows[posted_up_to:]
+        print(f"  [admin-api] posting final batch of {len(final_batch)} row(s)")
+        post_rows_to_admin_api(final_batch)
 
     return all_rows
 

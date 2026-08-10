@@ -935,9 +935,16 @@ def scrape_usajobs(limit=50):
               "(free at https://developer.usajobs.gov/) to enable")
         return []
     rows = []
+    params = {"ResultsPerPage": min(limit, 500)}
+    job_category_code = os.environ.get("USAJOBS_JOB_CATEGORY_CODE", "").strip()
+    if job_category_code:
+        params["JobCategoryCode"] = job_category_code
+    keyword = os.environ.get("USAJOBS_KEYWORD", "").strip()
+    if keyword:
+        params["Keyword"] = keyword
     resp = safe_get(
         "https://data.usajobs.gov/api/search",
-        params={"ResultsPerPage": min(limit, 50)},
+        params=params,
         headers={"Authorization-Key": api_key, "User-Agent": email, "Host": "data.usajobs.gov"},
     )
     if not resp:
@@ -1320,6 +1327,8 @@ def post_rows_to_admin_api(rows, url=None, token=None, timeout=None, state_path=
                 sent += 1
                 sent_keys.update(keys)
                 _save_admin_sent_keys(state_path, sent_keys)
+                print(f"  [admin-api][ok] {payload['role']!r} @ {payload['company']!r} "
+                      f"-> {resp.status_code} {resp.text[:300]}")
             else:
                 failed += 1
                 print(f"  [admin-api][warn] {payload['role']!r} @ {payload['company']!r} "

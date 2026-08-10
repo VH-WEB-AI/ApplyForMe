@@ -8,6 +8,9 @@ class Settings(BaseSettings):
 
     environment: str = "development"
     log_level: str = "INFO"
+    # Path prefix this app is mounted under behind a reverse proxy (e.g. "/aiapi").
+    # Lets FastAPI generate correctly prefixed URLs in its OpenAPI schema/docs.
+    root_path: str = ""
 
     database_url: str = "postgresql+psycopg://applyforme:applyforme@localhost:5432/applyforme"
     redis_url: str = "redis://localhost:6379/0"

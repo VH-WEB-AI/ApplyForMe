@@ -44,6 +44,7 @@ class JobPostingResponse(BaseModel):
     salary_max: int | None
     visa_sponsorship: bool
     required_skills: list[str]
+    tags: list[str]
 
     model_config = {"from_attributes": True, "alias_generator": to_camel, "populate_by_name": True}
 

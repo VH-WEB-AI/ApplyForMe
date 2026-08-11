@@ -101,6 +101,8 @@ class JobMatchEngine(Engine):
             "job_company": job.company,
             "redacted_resume_text": redact_pii(resume_version.raw_text),
             "job_description": job.description,
+            "resume_tags": resume_version.tags,
+            "job_tags": job.tags,
             "scores": scores,
         }
 
@@ -173,6 +175,8 @@ class JobMatchEngine(Engine):
             "jobCompany": context["job_company"],
             "matchScore": scores.match_score,
             "tagsScore": scores.tags_score,
+            "resumeTags": context["resume_tags"],
+            "jobTags": context["job_tags"],
             "experienceScore": scores.experience_score,
             "locationScore": scores.location_score,
             "visaScore": scores.visa_score,

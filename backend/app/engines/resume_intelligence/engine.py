@@ -77,6 +77,7 @@ class ResumeIntelligenceEngine(Engine):
             "candidate_id": candidate_id,
             "resume_version_id": resume_version.id,
             "content_hash": content_hash,
+            "tags": resume_version.tags,
             "target_role": target_role,
             "target_industry": target_industry,
             "redacted_resume_text": redact_pii(parsed.raw_text),
@@ -141,6 +142,7 @@ class ResumeIntelligenceEngine(Engine):
 
         return {
             "resumeVersionId": context["resume_version_id"],
+            "tags": context["tags"],
             "resumeScore": context["resume_score"],
             "atsScore": context["ats_score"],
             "sectionScores": context["section_scores"],

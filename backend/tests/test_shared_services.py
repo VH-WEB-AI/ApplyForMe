@@ -10,6 +10,7 @@ from app.services.pii_redaction import redact_pii
 from app.services.resume_parser import extract_text, identify_sections
 from app.services.response_validator import ResponseValidationError, validate_with_retry
 from app.services.skill_extractor import extract_skills, normalize_skill, skill_gap
+from app.services.tag_extractor import extract_tags, tag_overlap_score
 
 
 def test_extract_text_strips_nul_bytes_from_pdf():
@@ -86,6 +87,29 @@ def test_extract_keywords_excludes_stopwords():
     keywords = extract_keywords("The candidate will work with the team and the manager")
     assert "the" not in keywords
     assert "and" not in keywords
+
+
+def test_extract_tags_returns_relevant_keyphrases():
+    text = "Senior Backend Engineer with deep PostgreSQL and Kubernetes experience."
+    tags = extract_tags(text)
+    assert tags  # non-empty for real content
+    assert all(tag == tag.lower() for tag in tags)  # normalized for case-insensitive overlap
+
+
+def test_extract_tags_empty_for_blank_input():
+    assert extract_tags("") == []
+    assert extract_tags("   ") == []
+
+
+def test_tag_overlap_score():
+    resume_tags = ["python", "postgresql", "docker", "fastapi"]
+    job_tags = ["python", "postgresql", "aws"]
+    # 2 of the job's 3 tags (python, postgresql) are in the resume's tags
+    assert tag_overlap_score(resume_tags, job_tags) == pytest.approx(2 / 3)
+
+
+def test_tag_overlap_score_empty_job_tags():
+    assert tag_overlap_score(["python"], []) == 0.0
 
 
 def test_chunk_text_respects_overlap():

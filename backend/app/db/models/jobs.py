@@ -28,6 +28,9 @@ class JobPosting(TimestampMixin, Base):
     required_skills: Mapped[list[str]] = mapped_column(JSONB, default=list)
     min_experience_years: Mapped[int | None] = mapped_column(Integer, default=None)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Keyphrases extracted once at ingest time (tag_extractor.extract_tags) from
+    # the job description -- compared against ResumeVersion.tags in Job Match.
+    tags: Mapped[list[str]] = mapped_column(JSONB, default=list)
 
     matches: Mapped[list["JobMatch"]] = relationship(back_populates="job_posting")
 
@@ -42,7 +45,7 @@ class JobMatch(TimestampMixin, Base):
 
     match_score: Mapped[int] = mapped_column(Integer)
     semantic_score: Mapped[float] = mapped_column(default=0.0)
-    keyword_score: Mapped[float] = mapped_column(default=0.0)
+    tags_score: Mapped[float] = mapped_column(default=0.0)
     experience_score: Mapped[float] = mapped_column(default=0.0)
     location_score: Mapped[float] = mapped_column(default=0.0)
     visa_score: Mapped[float] = mapped_column(default=0.0)

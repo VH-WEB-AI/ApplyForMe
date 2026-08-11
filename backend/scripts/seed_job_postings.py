@@ -6,6 +6,7 @@ Usage (inside the backend container or the local venv):
 
 from app.db.base import SessionLocal
 from app.db.models.jobs import JobPosting
+from app.services.tag_extractor import extract_tags
 
 SAMPLE_JOBS = [
     dict(
@@ -124,7 +125,7 @@ def seed() -> None:
             key = (job["title"], job["company"])
             if key in existing_titles:
                 continue
-            db.add(JobPosting(**job, is_active=True))
+            db.add(JobPosting(**job, is_active=True, tags=extract_tags(job["description"])))
             created += 1
         db.commit()
         total = db.query(JobPosting).count()

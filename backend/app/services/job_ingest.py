@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.db.models.jobs import JobPosting
 from app.schemas.api import ScrapedJobRow
 from app.services.skill_extractor import extract_skills
+from app.services.tag_extractor import extract_tags
 
 _PAY_NUMBER_RE = re.compile(r"[\d,]+(?:\.\d+)?")
 _SENIOR_RE = re.compile(r"\b(senior|sr\.?|staff|principal|lead)\b", re.IGNORECASE)
@@ -68,6 +69,7 @@ def row_to_job_posting_kwargs(row: ScrapedJobRow) -> dict | None:
         required_skills=extract_skills(description),
         min_experience_years=None,
         is_active=True,
+        tags=extract_tags(description),
     )
 
 

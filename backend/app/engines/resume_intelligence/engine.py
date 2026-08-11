@@ -12,6 +12,7 @@ from app.services import embedding_generator
 from app.services.pii_redaction import redact_pii
 from app.services.prompt_builder import PromptSpec
 from app.services.resume_parser import parse_resume
+from app.services.tag_extractor import extract_tags
 
 SYSTEM_PROMPT = (
     "You are the Resume Intelligence Engine inside ApplyForMe's Career Command Center. "
@@ -48,6 +49,11 @@ class ResumeIntelligenceEngine(Engine):
             .order_by(ResumeVersion.id.desc())
         )
         if resume_version is None:
+            # Tags come from every section except header (name/email/phone/links) --
+            # same contact-info-is-noise reasoning as Job Match's job_relevant_text.
+            tag_source_text = "\n".join(
+                text for name, text in parsed.sections.items() if name != "header"
+            )
             resume_version = ResumeVersion(
                 candidate_id=candidate_id,
                 file_name=payload["filename"],
@@ -55,6 +61,7 @@ class ResumeIntelligenceEngine(Engine):
                 raw_text=parsed.raw_text,
                 sections=parsed.sections,
                 parsed_data={},
+                tags=extract_tags(tag_source_text),
             )
             db.add(resume_version)
             db.flush()

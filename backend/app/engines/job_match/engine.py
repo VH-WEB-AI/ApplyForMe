@@ -49,13 +49,6 @@ def _latest_resume_score(db: Session, resume_version_id: int) -> int:
     return score_row.resume_score if score_row else 0
 
 
-def _job_relevant_text(sections: dict[str, str]) -> str:
-    """Full resume text minus the header (name/email/phone/links) — pure contact-info
-    noise that carries no job-fit signal but dilutes the keyword overlap against the
-    job description."""
-    return "\n".join(text for name, text in sections.items() if name != "header")
-
-
 class JobMatchEngine(Engine):
     name = "job_match"
     response_schema = JobMatchLLMOutput
@@ -80,11 +73,9 @@ class JobMatchEngine(Engine):
             resume_version.sections.get("experience", "")
         )
 
-        job_relevant_text = _job_relevant_text(resume_version.sections)
-
         scores = analysis.compute(
-            resume_text=job_relevant_text,
-            job_description=job.description,
+            resume_tags=resume_version.tags,
+            job_tags=job.tags,
             candidate_skills=candidate_skills,
             required_skills=job.required_skills,
             candidate_years=candidate_years,
@@ -133,7 +124,7 @@ class JobMatchEngine(Engine):
                 "job_title": context["job_title"],
                 "job_company": context["job_company"],
                 "match_score": scores.match_score,
-                "keyword_score": scores.keyword_score,
+                "tags_score": scores.tags_score,
                 "experience_score": scores.experience_score,
                 "location_score": scores.location_score,
                 "visa_score": scores.visa_score,
@@ -162,7 +153,7 @@ class JobMatchEngine(Engine):
             job_posting_id=context["job_posting_id"],
             resume_version_id=context["resume_version_id"],
             match_score=scores.match_score,
-            keyword_score=scores.keyword_score,
+            tags_score=scores.tags_score,
             experience_score=scores.experience_score,
             location_score=scores.location_score,
             visa_score=scores.visa_score,
@@ -181,7 +172,7 @@ class JobMatchEngine(Engine):
             "jobTitle": context["job_title"],
             "jobCompany": context["job_company"],
             "matchScore": scores.match_score,
-            "keywordScore": scores.keyword_score,
+            "tagsScore": scores.tags_score,
             "experienceScore": scores.experience_score,
             "locationScore": scores.location_score,
             "visaScore": scores.visa_score,

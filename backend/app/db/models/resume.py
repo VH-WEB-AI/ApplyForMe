@@ -19,6 +19,10 @@ class ResumeVersion(TimestampMixin, Base):
     raw_text: Mapped[str] = mapped_column(Text)
     sections: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
     parsed_data: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    # Keyphrases extracted once at upload time (tag_extractor.extract_tags) from
+    # every section except header -- Job Match's dominant signal (see WEIGHTS
+    # in job_match/analysis.py) compares this against JobPosting.tags.
+    tags: Mapped[list[str]] = mapped_column(JSONB, default=list)
 
     scores: Mapped[list["ResumeScore"]] = relationship(back_populates="resume_version")
 

@@ -3,8 +3,8 @@ The LLM only ever explains these numbers afterward -- it never computes them."""
 
 from dataclasses import dataclass, field
 
-from app.services.keyword_extractor import keyword_overlap_score
 from app.services.skill_extractor import skill_gap
+from app.services.tag_extractor import tag_overlap_score
 
 _US_STATE_ABBR = {
     "alabama": "al", "alaska": "ak", "arizona": "az", "arkansas": "ar", "california": "ca",
@@ -36,10 +36,11 @@ def _parse_location(location: str) -> tuple[str, str | None]:
     return city, state
 
 # Suggested initial weighting; admin-configurable in the future (see design principle).
-# Keyword overlap is the sole text-matching signal (no semantic/embedding score) --
-# it absorbs the weight that component used to carry.
+# Tag overlap (precomputed keyphrases, see tag_extractor.py) is the sole
+# text-matching signal (no semantic/embedding score, no live keyword
+# extraction) -- highest priority, carrying the biggest single weight.
 WEIGHTS = {
-    "keyword": 0.45,
+    "tags": 0.45,
     "experience": 0.20,
     "location": 0.15,
     "visa": 0.10,
@@ -49,7 +50,7 @@ WEIGHTS = {
 
 @dataclass
 class JobMatchScores:
-    keyword_score: float = 0.0
+    tags_score: float = 0.0
     experience_score: float = 0.0
     location_score: float = 0.0
     visa_score: float = 0.0
@@ -125,8 +126,8 @@ def interview_readiness(match_score: int, resume_score: int) -> str:
 
 def compute(
     *,
-    resume_text: str,
-    job_description: str,
+    resume_tags: list[str],
+    job_tags: list[str],
     candidate_skills: list[str],
     required_skills: list[str],
     candidate_years: float,
@@ -143,7 +144,7 @@ def compute(
     resume_score: int,
 ) -> JobMatchScores:
     scores = JobMatchScores(
-        keyword_score=round(keyword_overlap_score(resume_text, job_description), 4),
+        tags_score=round(tag_overlap_score(resume_tags, job_tags), 4),
         experience_score=round(experience_score(candidate_years, min_required_years), 4),
         location_score=round(location_score(candidate_location, job_location, job_remote), 4),
         visa_score=round(visa_score(candidate_visa_status, job_visa_sponsorship), 4),
@@ -154,7 +155,7 @@ def compute(
     )
 
     weighted = (
-        scores.keyword_score * WEIGHTS["keyword"]
+        scores.tags_score * WEIGHTS["tags"]
         + scores.experience_score * WEIGHTS["experience"]
         + scores.location_score * WEIGHTS["location"]
         + scores.visa_score * WEIGHTS["visa"]

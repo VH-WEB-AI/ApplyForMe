@@ -71,13 +71,13 @@ those aliases; unusual/creative headings won't be recognized.
 ## 2. Job Match — Match Score
 
 `backend/app/engines/job_match/analysis.py` + `engine.py`. Five weighted components
-sum to a 0–100 `match_score`. There is no semantic/embedding component — keyword
-overlap is the sole text-matching signal (deliberately, to stay deterministic,
-free of OpenAI API cost/latency, and easy to reason about):
+sum to a 0–100 `match_score`. There is no semantic/embedding component and no live
+keyword extraction at match time — **tag overlap** (precomputed keyphrases, see
+below) is the sole text-matching signal and carries the single highest weight:
 
 | Component | Weight | Logic |
 |---|---|---|
-| **Keyword overlap** | 45% | Fraction of the job description's top keywords also present in the job-relevant resume text |
+| **Tag overlap** | 45% | Fraction of the job's tags also present in the resume's tags (`tag_extractor.tag_overlap_score`) |
 | **Experience** | 20% | `candidate_years / min_required_years`, capped at 1.0; full credit if the job has no stated minimum |
 | **Location** | 15% | See tiered logic below |
 | **Visa** | 10% | 1.0 if the candidate doesn't need sponsorship (citizen/PR/"authorized"/etc.); otherwise 1.0 if the job offers sponsorship, 0.0 if not |
@@ -87,13 +87,28 @@ free of OpenAI API cost/latency, and easy to reason about):
 `WEIGHTS` at the top of `analysis.py` — flagged in the code as admin-configurable
 defaults, not yet tuned against real outcome data.
 
-**"Job-relevant resume text"**: every resume section *except* the header
-(name/email/phone/links) — pure contact-info noise that dilutes the keyword
-overlap without carrying any job-fit signal.
+### Tags (`app/services/tag_extractor.py`)
+
+Both `resume_versions.tags` and `job_postings.tags` are JSONB columns holding a
+list of keyphrases, extracted **once, at creation time** (resume upload / job
+ingest) via [YAKE](https://github.com/LIAAD/yake) — a lightweight, open-source,
+purely statistical keyphrase extractor (no model download, no torch, CPU-only).
+Job Match reads these precomputed lists at match time; it never re-extracts from
+raw text, so matching stays cheap even at high volume.
+
+- **Resume tags**: extracted from every section *except* the header
+  (name/email/phone/links — pure contact-info noise, same reasoning as the old
+  job-relevant-text concept it replaces).
+- **Job tags**: extracted from the job's `description` field.
+- Existing rows created before this shipped are backfilled once via
+  `backend/scripts/backfill_tags.py` (idempotent — only fills rows where `tags`
+  is still empty, safe to re-run).
 
 **Note**: `job_matches.semantic_score` still exists as a DB column (always `0.0`
 for new rows going forward) rather than being dropped via migration — historical
-rows keep their real value for anyone auditing past matches.
+rows keep their real value for anyone auditing past matches. Likewise
+`keyword_extractor.py` is untouched and still powers Resume Intelligence's ATS
+score (section 1 above) — only Job Match moved to tags.
 
 **Location scoring** (`location_score`) — tiered, not exact-string:
 - Job is remote → **1.0**, unconditionally.

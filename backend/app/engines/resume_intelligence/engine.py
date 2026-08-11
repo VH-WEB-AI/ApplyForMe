@@ -3,6 +3,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.db.models.core import CandidateProfile
 from app.db.models.resume import ResumeScore, ResumeVersion
 from app.engines.resume_intelligence import analysis
 from app.engines.resume_intelligence.schemas import RESUME_LLM_JSON_SCHEMA, ResumeLLMOutput
@@ -36,6 +37,9 @@ class ResumeIntelligenceEngine(Engine):
         candidate_id = payload["candidate_id"]
         target_role = payload.get("target_role") or ""
         target_industry = payload.get("target_industry") or ""
+
+        if db.get(CandidateProfile, candidate_id) is None:
+            raise ValueError(f"Candidate profile {candidate_id} not found.")
 
         parsed = parse_resume(payload["file_bytes"], payload["filename"])
         content_hash = embedding_generator.content_hash(parsed.raw_text)

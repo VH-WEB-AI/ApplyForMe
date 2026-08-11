@@ -70,13 +70,14 @@ those aliases; unusual/creative headings won't be recognized.
 
 ## 2. Job Match — Match Score
 
-`backend/app/engines/job_match/analysis.py` + `engine.py`. Six weighted components
-sum to a 0–100 `match_score`:
+`backend/app/engines/job_match/analysis.py` + `engine.py`. Five weighted components
+sum to a 0–100 `match_score`. There is no semantic/embedding component — keyword
+overlap is the sole text-matching signal (deliberately, to stay deterministic,
+free of OpenAI API cost/latency, and easy to reason about):
 
 | Component | Weight | Logic |
 |---|---|---|
-| **Semantic similarity** | 30% | Cosine similarity between OpenAI embeddings (`text-embedding-3-small`) of the job-relevant resume text and the job description |
-| **Keyword overlap** | 15% | Fraction of the job description's top keywords also present in that same job-relevant resume text |
+| **Keyword overlap** | 45% | Fraction of the job description's top keywords also present in the job-relevant resume text |
 | **Experience** | 20% | `candidate_years / min_required_years`, capped at 1.0; full credit if the job has no stated minimum |
 | **Location** | 15% | See tiered logic below |
 | **Visa** | 10% | 1.0 if the candidate doesn't need sponsorship (citizen/PR/"authorized"/etc.); otherwise 1.0 if the job offers sponsorship, 0.0 if not |
@@ -87,11 +88,12 @@ sum to a 0–100 `match_score`:
 defaults, not yet tuned against real outcome data.
 
 **"Job-relevant resume text"**: every resume section *except* the header
-(name/email/phone/links) — pure contact-info noise that dilutes both the
-embedding and the keyword overlap without carrying any job-fit signal. This is
-embedded and cached under its own key (`resume_job_relevant`) separate from
-Resume Intelligence's whole-document embedding, so the two engines don't
-overwrite each other's cache entry for the same resume version.
+(name/email/phone/links) — pure contact-info noise that dilutes the keyword
+overlap without carrying any job-fit signal.
+
+**Note**: `job_matches.semantic_score` still exists as a DB column (always `0.0`
+for new rows going forward) rather than being dropped via migration — historical
+rows keep their real value for anyone auditing past matches.
 
 **Location scoring** (`location_score`) — tiered, not exact-string:
 - Job is remote → **1.0**, unconditionally.

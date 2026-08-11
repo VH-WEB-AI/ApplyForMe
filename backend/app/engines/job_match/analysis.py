@@ -36,9 +36,10 @@ def _parse_location(location: str) -> tuple[str, str | None]:
     return city, state
 
 # Suggested initial weighting; admin-configurable in the future (see design principle).
+# Keyword overlap is the sole text-matching signal (no semantic/embedding score) --
+# it absorbs the weight that component used to carry.
 WEIGHTS = {
-    "semantic": 0.30,
-    "keyword": 0.15,
+    "keyword": 0.45,
     "experience": 0.20,
     "location": 0.15,
     "visa": 0.10,
@@ -48,7 +49,6 @@ WEIGHTS = {
 
 @dataclass
 class JobMatchScores:
-    semantic_score: float = 0.0
     keyword_score: float = 0.0
     experience_score: float = 0.0
     location_score: float = 0.0
@@ -125,7 +125,6 @@ def interview_readiness(match_score: int, resume_score: int) -> str:
 
 def compute(
     *,
-    semantic_similarity: float,
     resume_text: str,
     job_description: str,
     candidate_skills: list[str],
@@ -144,7 +143,6 @@ def compute(
     resume_score: int,
 ) -> JobMatchScores:
     scores = JobMatchScores(
-        semantic_score=round(semantic_similarity, 4),
         keyword_score=round(keyword_overlap_score(resume_text, job_description), 4),
         experience_score=round(experience_score(candidate_years, min_required_years), 4),
         location_score=round(location_score(candidate_location, job_location, job_remote), 4),
@@ -156,8 +154,7 @@ def compute(
     )
 
     weighted = (
-        scores.semantic_score * WEIGHTS["semantic"]
-        + scores.keyword_score * WEIGHTS["keyword"]
+        scores.keyword_score * WEIGHTS["keyword"]
         + scores.experience_score * WEIGHTS["experience"]
         + scores.location_score * WEIGHTS["location"]
         + scores.visa_score * WEIGHTS["visa"]

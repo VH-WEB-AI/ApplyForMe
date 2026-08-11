@@ -51,8 +51,8 @@ def _latest_resume_score(db: Session, resume_version_id: int) -> int:
 
 def _job_relevant_text(sections: dict[str, str]) -> str:
     """Full resume text minus the header (name/email/phone/links) — pure contact-info
-    noise that carries no job-fit signal but dilutes both the semantic embedding and
-    the keyword overlap against the job description."""
+    noise that carries no job-fit signal but dilutes the keyword overlap against the
+    job description."""
     return "\n".join(text for name, text in sections.items() if name != "header")
 
 
@@ -82,21 +82,7 @@ class JobMatchEngine(Engine):
 
         job_relevant_text = _job_relevant_text(resume_version.sections)
 
-        # Distinct owner_type from Resume Intelligence's whole-document embedding
-        # (which keys off the same resume_version.id) — different input text under
-        # the same key would just have the two engines overwrite each other's cache.
-        resume_embedding = embedding_generator.get_or_create_embedding(
-            db, owner_type="resume_job_relevant", owner_id=resume_version.id, text=job_relevant_text
-        )
-        job_embedding = embedding_generator.get_or_create_embedding(
-            db, owner_type="job", owner_id=job.id, text=job.description
-        )
-        semantic_similarity = embedding_generator.cosine_similarity(
-            resume_embedding.embedding, job_embedding.embedding
-        )
-
         scores = analysis.compute(
-            semantic_similarity=semantic_similarity,
             resume_text=job_relevant_text,
             job_description=job.description,
             candidate_skills=candidate_skills,
@@ -147,7 +133,6 @@ class JobMatchEngine(Engine):
                 "job_title": context["job_title"],
                 "job_company": context["job_company"],
                 "match_score": scores.match_score,
-                "semantic_score": scores.semantic_score,
                 "keyword_score": scores.keyword_score,
                 "experience_score": scores.experience_score,
                 "location_score": scores.location_score,
@@ -177,7 +162,6 @@ class JobMatchEngine(Engine):
             job_posting_id=context["job_posting_id"],
             resume_version_id=context["resume_version_id"],
             match_score=scores.match_score,
-            semantic_score=scores.semantic_score,
             keyword_score=scores.keyword_score,
             experience_score=scores.experience_score,
             location_score=scores.location_score,
@@ -197,7 +181,6 @@ class JobMatchEngine(Engine):
             "jobTitle": context["job_title"],
             "jobCompany": context["job_company"],
             "matchScore": scores.match_score,
-            "semanticScore": scores.semantic_score,
             "keywordScore": scores.keyword_score,
             "experienceScore": scores.experience_score,
             "locationScore": scores.location_score,

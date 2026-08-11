@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.base import get_db
@@ -10,6 +11,9 @@ router = APIRouter(prefix="/candidates", tags=["candidates"])
 
 @router.post("", response_model=CreateCandidateResponse)
 def create_candidate(body: CreateCandidateRequest, db: Session = Depends(get_db)) -> CreateCandidateResponse:
+    if db.scalar(select(User).where(User.email == body.email)) is not None:
+        raise HTTPException(status_code=409, detail=f"A user with email {body.email!r} already exists.")
+
     user = User(email=body.email, full_name=body.full_name)
     db.add(user)
     db.flush()

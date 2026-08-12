@@ -10,7 +10,8 @@ from app.services.pii_redaction import redact_pii
 from app.services.resume_parser import extract_text, identify_sections
 from app.services.response_validator import ResponseValidationError, validate_with_retry
 from app.services.skill_extractor import extract_skills, normalize_skill, skill_gap
-from app.services.tag_extractor import extract_tags, tag_overlap_score
+from app.services.llm_gateway import ChatResult
+from app.services.tag_extractor import extract_tags, extract_tags_openai, tag_overlap_score
 
 
 def test_extract_text_strips_nul_bytes_from_pdf():
@@ -110,6 +111,35 @@ def test_tag_overlap_score():
 
 def test_tag_overlap_score_empty_job_tags():
     assert tag_overlap_score(["python"], []) == 0.0
+
+
+def test_extract_tags_openai_parses_response():
+    fake_result = ChatResult(
+        content='{"tags": ["Backend Engineer", "Python", " FastAPI "]}',
+        model="test-model",
+        prompt_tokens=10,
+        completion_tokens=5,
+        latency_ms=1.0,
+    )
+    with patch("app.services.tag_extractor.chat_completion", return_value=fake_result):
+        tags = extract_tags_openai("some resume text")
+    assert tags == ["backend engineer", "python", "fastapi"]
+
+
+def test_extract_tags_openai_falls_back_to_empty_on_bad_response():
+    fake_result = ChatResult(
+        content="not valid json",
+        model="test-model",
+        prompt_tokens=10,
+        completion_tokens=5,
+        latency_ms=1.0,
+    )
+    with patch("app.services.tag_extractor.chat_completion", return_value=fake_result):
+        assert extract_tags_openai("some resume text") == []
+
+
+def test_extract_tags_openai_empty_for_blank_input():
+    assert extract_tags_openai("") == []
 
 
 def test_chunk_text_respects_overlap():

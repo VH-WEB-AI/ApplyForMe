@@ -13,7 +13,7 @@ from app.services import embedding_generator
 from app.services.pii_redaction import redact_pii
 from app.services.prompt_builder import PromptSpec
 from app.services.resume_parser import parse_resume
-from app.services.tag_extractor import extract_tags
+from app.services.tag_extractor import extract_tags_openai
 
 SYSTEM_PROMPT = (
     "You are the Resume Intelligence Engine inside ApplyForMe's Career Command Center. "
@@ -65,7 +65,7 @@ class ResumeIntelligenceEngine(Engine):
                 raw_text=parsed.raw_text,
                 sections=parsed.sections,
                 parsed_data={},
-                tags=extract_tags(tag_source_text),
+                tags=extract_tags_openai(tag_source_text),
             )
             db.add(resume_version)
             db.flush()

@@ -48,7 +48,10 @@ def test_gather_context_produces_reasonable_scores(db):
     candidate = _make_candidate(db)
     engine = ResumeIntelligenceEngine()
 
-    with patch("app.services.embedding_generator.llm_gateway.create_embedding", return_value=FAKE_EMBEDDING):
+    with (
+        patch("app.services.embedding_generator.llm_gateway.create_embedding", return_value=FAKE_EMBEDDING),
+        patch("app.engines.resume_intelligence.engine.extract_tags_openai", return_value=["backend", "fastapi"]),
+    ):
         context = engine.gather_context(
             db,
             {
@@ -97,6 +100,7 @@ def test_resume_engine_full_orchestrator_flow(db):
     with (
         patch("app.orchestrator.orchestrator.chat_completion", return_value=fake_chat_result),
         patch("app.services.embedding_generator.llm_gateway.create_embedding", return_value=FAKE_EMBEDDING),
+        patch("app.engines.resume_intelligence.engine.extract_tags_openai", return_value=["backend", "fastapi"]),
     ):
         result = AIOrchestrator().handle_request("resume_intelligence", db, payload)
 

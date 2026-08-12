@@ -1,13 +1,31 @@
-"""Tag Extractor: lightweight, open-source keyphrase extraction via YAKE
+"""Tag Extractor: two extraction paths with a deliberate cost/quality split.
+
+extract_tags() -- lightweight, open-source keyphrase extraction via YAKE
 (statistical, no model download, CPU-only -- see docs/SCORING_LOGIC.md).
+Used for JobPosting.tags (job_ingest.py): ingestion runs in bulk (hundreds
+to thousands of postings per scraper run), where a per-job OpenAI call
+would be materially slower and cost real money at that volume.
 
-Tags are computed once at creation time (resume upload / job ingest) and
-stored on the row, so Job Match compares small precomputed tag lists on
-every match instead of re-running extraction over full text each time.
+extract_tags_openai() -- LLM-based, used for ResumeVersion.tags (resume
+upload happens once per user action, already pays for an LLM call for
+recommendations) and both /resume/ats-check and /resume/analyze's
+no-candidate-id fallback. Produces cleaner tags than YAKE's raw n-grams,
+which can fragment a company/institution name across several tags (e.g.
+"pvt"/"height"/"services" instead of one coherent phrase).
 
-extract_tags_openai() is a separate, LLM-based path used only where better
-tag quality is worth the added API cost/latency (see its docstring) --
-everything stored for Job Match still goes through the free extract_tags().
+Tags are computed once at creation time and stored on the row, so Job
+Match compares small precomputed tag lists on every match instead of
+re-running extraction over full text each time.
+
+Caveat: resume tags (OpenAI, clean semantic phrases like "backend
+developer") and job tags (YAKE, raw n-grams) now come from stylistically
+different extractors. tag_overlap_score() does exact string matching, so
+this asymmetry can suppress overlap that would otherwise be obvious to a
+human (e.g. resume tag "python" vs job tag "python developer" don't
+match as strings even though they clearly should). Worth revisiting if
+match quality looks off in practice -- either upgrading job tags too
+(at the ingestion-cost tradeoff above) or moving to fuzzy/substring
+matching in tag_overlap_score() instead of exact set intersection.
 """
 
 import yake

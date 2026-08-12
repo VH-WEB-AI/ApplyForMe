@@ -1,9 +1,11 @@
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
 from pydantic import BaseModel
 
 from app.services.document_chunking import chunk_text
+from app.services.experience_estimator import estimate_total_experience_years
 from app.services.json_formatter import parse_llm_json
 from app.services.keyword_extractor import extract_keywords, keyword_overlap_score
 from app.services.pii_redaction import redact_pii
@@ -140,6 +142,37 @@ def test_extract_tags_openai_falls_back_to_empty_on_bad_response():
 
 def test_extract_tags_openai_empty_for_blank_input():
     assert extract_tags_openai("") == []
+
+
+def test_estimate_experience_ignores_unrelated_numbers_outside_date_ranges():
+    # Regression test: a phone-number-like fragment ("20064...") must never be
+    # misread as the year 2006 just because it contains that substring.
+    text = "Senior Engineer at Acme, 2020 - 2023\nContact: 20064155512\nCert year: 1999"
+    assert estimate_total_experience_years(text) == 3.0
+
+
+def test_estimate_experience_present_uses_current_year():
+    current_year = datetime.now(timezone.utc).year
+    text = "Backend Engineer at Acme, 2020 - Present"
+    assert estimate_total_experience_years(text) == float(current_year - 2020)
+
+
+def test_estimate_experience_spans_multiple_ranges():
+    text = "Engineer at A, 2015 - 2018\nSenior Engineer at B, 2019 - 2022"
+    assert estimate_total_experience_years(text) == 7.0
+
+
+def test_estimate_experience_no_dates_returns_zero():
+    assert estimate_total_experience_years("Worked on various projects.") == 0.0
+
+
+def test_estimate_experience_empty_text_returns_zero():
+    assert estimate_total_experience_years("") == 0.0
+
+
+def test_estimate_experience_word_separator():
+    text = "Engineer at Acme, 2018 to 2021"
+    assert estimate_total_experience_years(text) == 3.0
 
 
 def test_chunk_text_respects_overlap():

@@ -23,12 +23,12 @@ class CreateCandidateResponse(BaseModel):
 
 
 class JobMatchRequest(BaseModel):
-    candidate_id: int
+    candidate_id: int | None = None
     job_posting_id: int
 
 
 class CopilotAskRequest(BaseModel):
-    candidate_id: int
+    candidate_id: int | None = None
     question: str
     conversation_id: int | None = None
 

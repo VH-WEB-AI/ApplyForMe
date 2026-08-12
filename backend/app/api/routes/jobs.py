@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -28,6 +28,10 @@ def ingest_jobs(body: JobIngestRequest, db: Session = Depends(get_db)) -> dict:
 
 @router.post("/match")
 def match_single_job(body: JobMatchRequest, db: Session = Depends(get_db)) -> dict:
+    # candidate_id is optional on the request shape but not actually
+    # skippable here -- there's no resume/profile to match without one.
+    if body.candidate_id is None:
+        raise HTTPException(status_code=400, detail="candidate_id is required to run a job match.")
     return orchestrator.handle_request(
         "job_match", db, {"candidate_id": body.candidate_id, "job_posting_id": body.job_posting_id}
     )

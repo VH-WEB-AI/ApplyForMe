@@ -6,18 +6,23 @@ from app.engines.resume_intelligence import analysis
 from app.engines.resume_intelligence import engine as resume_engine  # noqa: F401 -- registers the engine
 from app.orchestrator.orchestrator import orchestrator
 from app.services.resume_parser import parse_resume
+from app.services.tag_extractor import extract_tags_openai
 
 router = APIRouter(prefix="/resume", tags=["resume"])
 
 
 def _deterministic_analysis(file_bytes: bytes, filename: str, target_role: str | None, target_industry: str | None) -> dict:
     """Shared by /analyze (when no candidate_id is given) and /ats-check: the
-    deterministic scores only, no DB write, no LLM call."""
+    deterministic scores, no DB write, plus one OpenAI call for tags
+    (extract_tags_openai -- explicitly not the free YAKE path used elsewhere,
+    see its docstring for why)."""
     parsed = parse_resume(file_bytes, filename)
     target_text = f"{target_role or ''} {target_industry or ''}".strip()
     result = analysis.analyze(parsed.sections, raw_text=parsed.raw_text, target_role_text=target_text)
+    tag_source_text = "\n".join(text for name, text in parsed.sections.items() if name != "header")
 
     return {
+        "tags": extract_tags_openai(tag_source_text),
         "resumeScore": result.resume_score,
         "atsScore": result.ats_score,
         "sectionScores": result.section_scores,
@@ -60,8 +65,10 @@ async def check_ats(
     target_industry: str | None = Form(None),
     file: UploadFile = File(...),
 ) -> dict:
-    """Deterministic ATS/resume scoring with no candidate, no DB write, and no
-    LLM call -- just upload a file and get scores back. target_role/industry
-    are optional and only sharpen the keyword-overlap component if given."""
+    """Deterministic ATS/resume scoring with no candidate and no DB write --
+    just upload a file and get scores back. Does make one OpenAI call (for
+    tags -- see extract_tags_openai), so this is no longer literally
+    LLM-free, just candidate-free and stateless. target_role/industry are
+    optional and only sharpen the keyword-overlap component if given."""
     file_bytes = await file.read()
     return _deterministic_analysis(file_bytes, file.filename, target_role, target_industry)

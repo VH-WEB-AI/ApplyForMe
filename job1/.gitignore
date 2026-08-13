@@ -1,9 +1,11 @@
-.env
 __pycache__/
 *.pyc
-.venv/
+.env
 venv/
+.venv/
 *.egg-info/
 .pytest_cache/
-pgdata/
-job1/.env
+data/
+/data/
+.DS_Store
+*.log

@@ -4,9 +4,9 @@ What actually computes every number and decision in the AI Engine, and what the 
 is (and isn't) responsible for. Source of truth is the code — file/line references
 below point at it so this doc can be checked against reality, not trusted blindly.
 
-## The one rule that shapes everything
+## The one rule that shapes everything (Job Match and Career Health)
 
-**The LLM never computes a score.** Every number (`ats_score`, `match_score`,
+**The LLM never computes a score.** Every number (`match_score`,
 `careerHealthScore`, component scores, badges, priority levels) comes from plain
 Python in an `analysis.py` module — regex, arithmetic, taxonomy lookups, cosine
 similarity. The LLM's only job is to *explain* numbers it's handed and to produce
@@ -14,57 +14,75 @@ qualitative output (recommendations, advice, free-text answers) that must stay
 consistent with them. This is enforced at the prompt level too — each engine's
 `BUSINESS_RULES` explicitly tells the model not to contradict or invent scores.
 
-Why it matters practically: re-running the same resume/job pair produces the exact
-same score every time (and skips the LLM call entirely — see **Caching** below),
-and a wrong or missing OpenAI key still gives you accurate scores, just no prose.
+Why it matters practically: re-running the same job match produces the exact same
+score every time (and skips the LLM call entirely — see **Caching** below), and a
+wrong or missing OpenAI key still gives you accurate scores, just no prose.
+
+**Resume Intelligence is the deliberate exception** — see section 1 below. Every
+one of its fields (`resumeScore`, `atsScore`, `sectionScores`, `tags`, `education`,
+`certifications`, `totalExperienceYears`) is produced by a single structured LLM
+call, not by `analysis.py` regex/arithmetic (that module has been deleted). This
+was a deliberate tradeoff, made after the regex/keyword-heuristic approach kept
+producing real accuracy bugs in production (section headers going unrecognized,
+degree/certification keyword matching picking up unrelated sentences, agency/
+staffing-firm boilerplate PDFs polluting every field) that were faster and more
+robust to fix by having the LLM read the whole resume holistically than by adding
+ever more regex special-cases. The tradeoff accepted: `resumeScore`/`atsScore` are
+no longer reproducible bit-for-bit across calls, and a missing/failing OpenAI key
+now fails the whole `/resume/analyze` and `/resume/ats-check` requests instead of
+degrading gracefully to scores-without-prose.
 
 ---
 
-## 1. Resume Intelligence — ATS Compatibility Score
+## 1. Resume Intelligence — fully LLM-driven
 
-`backend/app/engines/resume_intelligence/analysis.py` → `compute_ats_score()`
+`backend/app/engines/resume_intelligence/engine.py` — `ResumeIntelligenceEngine`.
+There is no `analysis.py` for this engine anymore. A single structured LLM call
+(`ResumeLLMOutput` in `schemas.py`) produces every field in one pass, briefed via
+`SYSTEM_PROMPT`/`BUSINESS_RULES`/`build_prompt_spec()` to act as three experts at
+once (recruiter, ATS parsing engine, career coach):
 
-Weighted, 100 points total, each component independently deterministic:
+- **`resumeScore`, `atsScore`** (0-100 each): judged by the model, not computed by
+  a weighted formula — the prompt describes what each should weigh (contact info
+  parseability, section structure, keyword/skill match against the target role,
+  formatting clarity, explicit skills section for `atsScore`; overall clarity/
+  impact for `resumeScore`) but the number itself is the model's judgment call.
+- **`sectionScores`** (`summary`/`experience`/`education`/`skills`, 0-100 each) and
+  **`weakSections`** (keys below 60): also the model's judgment, instructed to read
+  for section *content* under any heading wording/decoration rather than pattern-
+  matching a fixed alias list — this is what fixed real bugs where an atypical
+  heading (e.g. "Experience Summary") caused a section to score 0 despite having
+  content.
+- **`tags`** (up to 50): built in three explicit passes the model is instructed to
+  follow — (a) exhaustively list every literal skill/technology/tool named,
+  prioritizing an explicit Skills section as ground truth; (b) every distinct job
+  title/role literally held (e.g. "technical lead"), for job-posting matchability;
+  (c) up to 5 broader domain keywords. A pydantic validator (`_clean_tags` in
+  `schemas.py`) is a safety net, not a second extraction pass: it splits any
+  comma-joined string the model returns as one tag, strips whitespace/control-char
+  artifacts, deduplicates case-insensitively, and caps at 50.
+- **`education`, `certifications`**: every distinct entry literally stated;
+  explicitly instructed to stop at the first sign of unrelated content (a new
+  project/experience block) even without a recognized heading, and to return an
+  empty list rather than stretch an unrelated sentence that merely mentions the
+  word "certification".
+- **`totalExperienceYears`**: summed from explicit date ranges in the text (using
+  a `current_date` passed in `candidate_context`), falling back to a stated
+  approximate total in prose (e.g. "8+ years of experience") if no date range
+  exists anywhere, and only 0 if neither is present.
+- **`missingSkills`, `recommendations`, `rewriteSuggestions`**: as before — the
+  model's qualitative output, still required to stay grounded in the resume text.
 
-| Component | Points | Logic |
-|---|---|---|
-| **Contact parseability** | 15 | 8 pts if an email regex matches the header/summary text, 7 pts if a phone regex matches |
-| **Section structure** | 25 | 5 pts per required heading found (Summary, Experience, Education, Skills = 20 max) + 5 bonus pts if a Projects or Certifications section exists |
-| **Keyword/skill match** | 30 | If a target role/industry was given: fraction of that text's top keywords also found in the resume (`keyword_overlap_score`), × 30. If no target role: `min(1, taxonomy_skills_found_anywhere / 10) × 30` — a real signal instead of a flat placeholder |
-| **Formatting/parseability** | 20 | Word-count sanity check (10 pts, see below) + 5 pts if the Experience section uses bullet glyphs (`•`/`-`/`*`) instead of dense paragraphs + up to 5 pts for recognizable date ranges (`Jan 2020 – Present`, `01/2020-12/2022`, etc.) |
-| **Skills section quality** | 10 | `min(1, taxonomy_skills_found_in_Skills_section / 8) × 10` — rewards an explicit, recognizable skills list specifically, not skills mentioned incidentally elsewhere |
+The system prompt explicitly instructs the model to detect and disregard
+staffing-agency cover/marketing pages that get PDF-merged into a candidate's
+resume (a real case: a multi-page PDF with an agency sales cover page and
+"About Us"/"Why Choose Us" trailing pages, which previously polluted `education`
+with sentences from the agency's own marketing copy).
 
-**Word-count sanity check** (`length_score`): <120 words → 0 (usually means the PDF
-was scanned/image-based and barely any text was actually extracted — a real ATS
-parsing failure, not just a short resume); 120–250 → half credit; 250–1200 → full
-credit; 1200–1800 → 0.7; beyond that → 0.4 (too long to be fully indexed/skimmed).
-
-Section headings are recognized by `resume_parser.py`'s alias list (e.g. "Work
-Experience", "Professional Experience", "Employment History" all map to
-`experience`) — a heading only counts if it's on its own line and matches one of
-those aliases; unusual/creative headings won't be recognized.
-
-### Section scores (per-section quality, separate from the ATS score)
-
-`compute_section_scores()` — used for `weak_sections` (anything scoring below 60):
-- **Summary**: `40 + 2 × word_count`, capped at 100; 0 if the section is missing.
-- **Experience**: `30 + 40 × action_verb_ratio + 30 × achievement_ratio` — the
-  fraction of bullets that start with a verb from a curated action-verb list
-  (`led`, `built`, `optimized`, …), and the fraction that contain a digit
-  (treated as a proxy for quantified impact, e.g. "reduced latency by 30%").
-- **Education**: 80 if present, 0 if not (presence-only, no quality check).
-- **Skills**: `20 + comma_count`, capped at 100 — more comma-separated entries score higher.
-
-### Resume Score (the headline number)
-
-`compute_resume_score()`: `round(avg(section_scores) × 0.7 + ats_score × 0.3)`.
-
-### Other deterministic extractions
-- **Total experience years** (shared with Job Match): earliest year to latest
-  year/"Present" found in a `YYYY - YYYY|Present` style range in the Experience
-  text (`experience_estimator.py`).
-- **Education/Certifications**: lines containing a degree keyword (`bachelor`,
-  `mba`, `phd`, …) or a certification keyword (`pmp`, `aws certified`, …).
+`resume_parser.py`'s `identify_sections`/`SECTION_HEADERS` still exists and is
+still used — but only to populate `ResumeVersion.sections` (which Job Match's
+`total_experience_years` calculation reads independently at match time), not for
+Resume Intelligence's own scoring anymore.
 
 ---
 
@@ -106,9 +124,10 @@ raw text, so matching stays cheap even at high volume.
 
 **Note**: `job_matches.semantic_score` still exists as a DB column (always `0.0`
 for new rows going forward) rather than being dropped via migration — historical
-rows keep their real value for anyone auditing past matches. Likewise
-`keyword_extractor.py` is untouched and still powers Resume Intelligence's ATS
-score (section 1 above) — only Job Match moved to tags.
+rows keep their real value for anyone auditing past matches. `keyword_extractor.py`
+(the deterministic keyword-frequency module that used to power Resume
+Intelligence's `ats_score` keyword-match component) has been deleted along with
+the rest of that engine's `analysis.py` — see section 1 above.
 
 **Location scoring** (`location_score`) — tiered, not exact-string:
 - Job is remote → **1.0**, unconditionally.

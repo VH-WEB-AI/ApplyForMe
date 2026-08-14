@@ -4,12 +4,27 @@ from unittest.mock import patch
 import docx
 
 from app.db.models.core import CandidateProfile, User
+from app.db.models.resume import ResumeVersion
 from app.engines.resume_intelligence.engine import ResumeIntelligenceEngine
 from app.engines.resume_intelligence.schemas import ResumeLLMOutput
 from app.orchestrator.orchestrator import AIOrchestrator
 from app.services.llm_gateway import ChatResult, EmbeddingResult
 
 FAKE_EMBEDDING = EmbeddingResult(vector=[0.01] * 1536, model="test-embedding-model", latency_ms=1.0)
+
+FAKE_LLM_OUTPUT = ResumeLLMOutput(
+    tags=["python", "fastapi", "kubernetes"],
+    resume_score=72,
+    ats_score=68,
+    section_scores={"summary": 80, "experience": 65, "education": 80, "skills": 60},
+    weak_sections=["experience"],
+    total_experience_years=3.0,
+    education=["Bachelor of Science in Computer Science, State University, 2018"],
+    certifications=["AWS Certified Solutions Architect"],
+    missing_skills=["Terraform"],
+    recommendations=["Quantify the 'worked on stuff' bullet with a measurable outcome."],
+    rewrite_suggestions={"experience": "Owned X, resulting in Y% improvement in Z."},
+)
 
 
 def _make_resume_docx() -> bytes:
@@ -44,14 +59,11 @@ def _make_candidate(db) -> CandidateProfile:
     return profile
 
 
-def test_gather_context_produces_reasonable_scores(db):
+def test_gather_context_has_no_pii_and_defers_tags_to_llm(db):
     candidate = _make_candidate(db)
     engine = ResumeIntelligenceEngine()
 
-    with (
-        patch("app.services.embedding_generator.llm_gateway.create_embedding", return_value=FAKE_EMBEDDING),
-        patch("app.engines.resume_intelligence.engine.extract_tags_openai", return_value=["backend", "fastapi"]),
-    ):
+    with patch("app.services.embedding_generator.llm_gateway.create_embedding", return_value=FAKE_EMBEDDING):
         context = engine.gather_context(
             db,
             {
@@ -63,26 +75,19 @@ def test_gather_context_produces_reasonable_scores(db):
             },
         )
 
-    assert context["resume_score"] > 0
-    assert context["ats_score"] > 0
-    assert "Kubernetes" not in context["weak_sections"]
-    assert context["total_experience_years"] >= 0
-    assert any("AWS Certified" in c for c in context["certifications"])
-    assert "Bachelor" in " ".join(context["education"])
+    assert context["resume_version_id"] is not None
     # PII must not leak into what eventually reaches the LLM
     assert "jane.doe@example.com" not in context["redacted_resume_text"]
+    # tags aren't known until the LLM call in postprocess() runs
+    resume_version = db.get(ResumeVersion, context["resume_version_id"])
+    assert resume_version.tags == []
 
 
 def test_resume_engine_full_orchestrator_flow(db):
     candidate = _make_candidate(db)
 
-    fake_llm_output = ResumeLLMOutput(
-        missing_skills=["Terraform"],
-        recommendations=["Quantify the 'worked on stuff' bullet with a measurable outcome."],
-        rewrite_suggestions={"experience": "Owned X, resulting in Y% improvement in Z."},
-    )
     fake_chat_result = ChatResult(
-        content=fake_llm_output.model_dump_json(),
+        content=FAKE_LLM_OUTPUT.model_dump_json(),
         model="test-model",
         prompt_tokens=100,
         completion_tokens=50,
@@ -100,12 +105,46 @@ def test_resume_engine_full_orchestrator_flow(db):
     with (
         patch("app.orchestrator.orchestrator.chat_completion", return_value=fake_chat_result),
         patch("app.services.embedding_generator.llm_gateway.create_embedding", return_value=FAKE_EMBEDDING),
-        patch("app.engines.resume_intelligence.engine.extract_tags_openai", return_value=["backend", "fastapi"]),
     ):
         result = AIOrchestrator().handle_request("resume_intelligence", db, payload)
 
-    assert result["resumeScore"] > 0
-    assert result["atsScore"] > 0
+    assert result["resumeScore"] == 72
+    assert result["atsScore"] == 68
+    assert result["tags"] == ["python", "fastapi", "kubernetes"]
+    assert result["sectionScores"]["experience"] == 65
+    assert result["weakSections"] == ["experience"]
+    assert result["totalExperienceYears"] == 3.0
+    assert any("AWS Certified" in c for c in result["certifications"])
+    assert "Bachelor" in " ".join(result["education"])
     assert result["missingSkills"] == ["Terraform"]
     assert "recommendations" in result
     assert result["rewriteSuggestions"]["experience"].startswith("Owned")
+
+    # tags are persisted back onto the resume version row once the LLM call returns
+    resume_version = db.get(ResumeVersion, result["resumeVersionId"])
+    assert resume_version.tags == ["python", "fastapi", "kubernetes"]
+
+
+def test_ats_check_without_candidate_id_still_returns_full_analysis(db):
+    fake_chat_result = ChatResult(
+        content=FAKE_LLM_OUTPUT.model_dump_json(),
+        model="test-model",
+        prompt_tokens=100,
+        completion_tokens=50,
+        latency_ms=250.0,
+    )
+
+    payload = {
+        "candidate_id": None,
+        "file_bytes": _make_resume_docx(),
+        "filename": "resume.docx",
+        "target_role": "Backend Engineer",
+        "target_industry": "Software",
+    }
+
+    with patch("app.orchestrator.orchestrator.chat_completion", return_value=fake_chat_result):
+        result = AIOrchestrator().handle_request("resume_intelligence", db, payload)
+
+    assert result["resumeVersionId"] is None
+    assert result["tags"] == ["python", "fastapi", "kubernetes"]
+    assert result["resumeScore"] == 72

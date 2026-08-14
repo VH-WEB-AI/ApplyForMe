@@ -8,11 +8,23 @@ import docx
 import pdfplumber
 
 SECTION_HEADERS = {
-    "summary": ["summary", "professional summary", "objective", "profile"],
-    "experience": ["experience", "work experience", "professional experience", "employment history"],
-    "education": ["education", "academic background"],
-    "skills": ["skills", "technical skills", "core competencies"],
-    "projects": ["projects", "personal projects", "key projects"],
+    "summary": [
+        "summary", "professional summary", "objective", "profile",
+        "career summary", "executive summary", "career objective",
+        "professional profile", "summary of qualifications",
+        "personal statement", "about me",
+    ],
+    "experience": [
+        "experience", "work experience", "professional experience", "employment history",
+        "work history", "career history", "relevant experience", "employment",
+        "professional background",
+    ],
+    "education": ["education", "academic background", "educational background", "qualifications"],
+    "skills": [
+        "skills", "technical skills", "core competencies", "key skills",
+        "areas of expertise", "competencies",
+    ],
+    "projects": ["projects", "personal projects", "key projects", "notable projects"],
     "certifications": ["certifications", "certificates", "licenses"],
 }
 
@@ -55,10 +67,23 @@ def _extract_docx_text(file_bytes: bytes) -> str:
 
 
 def _is_section_header(line: str) -> str | None:
+    # Bullets/icons before or after the title (e.g. "● Summary") get stripped
+    # by the [^a-z ] filter but leave their surrounding space behind, so the
+    # whitespace has to be re-normalized before the exact dict lookup below --
+    # otherwise " summary" never matches "summary" and the section is lost.
     cleaned = re.sub(r"[^a-z ]", "", line.strip().lower())
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
     if not cleaned or len(cleaned.split()) > 4:
         return None
-    return _HEADER_TO_SECTION.get(cleaned)
+    if cleaned in _HEADER_TO_SECTION:
+        return _HEADER_TO_SECTION[cleaned]
+    # Fall back to a prefix match so decorated headers (e.g. "Experience
+    # (2020-Present)" -> "experience present" once digits/punctuation are
+    # stripped, or "Summary | Software Engineer") still register.
+    for alias, section in _HEADER_TO_SECTION.items():
+        if cleaned.startswith(alias + " "):
+            return section
+    return None
 
 
 def identify_sections(raw_text: str) -> dict[str, str]:

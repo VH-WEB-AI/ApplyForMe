@@ -7,13 +7,11 @@ from pydantic import BaseModel
 from app.services.document_chunking import chunk_text
 from app.services.experience_estimator import estimate_total_experience_years
 from app.services.json_formatter import parse_llm_json
-from app.services.keyword_extractor import extract_keywords, keyword_overlap_score
 from app.services.pii_redaction import redact_pii
 from app.services.resume_parser import extract_text, identify_sections
 from app.services.response_validator import ResponseValidationError, validate_with_retry
 from app.services.skill_extractor import extract_skills, normalize_skill, skill_gap
-from app.services.llm_gateway import ChatResult
-from app.services.tag_extractor import extract_tags, extract_tags_openai, tag_overlap_score
+from app.services.tag_extractor import extract_tags, tag_overlap_score
 
 
 def test_extract_text_strips_nul_bytes_from_pdf():
@@ -79,19 +77,6 @@ def test_identify_sections_splits_headers():
     assert "Acme" in sections["experience"]
 
 
-def test_keyword_overlap_score():
-    resume = "Experienced with Python, FastAPI, and PostgreSQL databases."
-    jd = "Looking for Python and PostgreSQL experience with FastAPI."
-    score = keyword_overlap_score(resume, jd)
-    assert score > 0.5
-
-
-def test_extract_keywords_excludes_stopwords():
-    keywords = extract_keywords("The candidate will work with the team and the manager")
-    assert "the" not in keywords
-    assert "and" not in keywords
-
-
 def test_extract_tags_returns_relevant_keyphrases():
     text = "Senior Backend Engineer with deep PostgreSQL and Kubernetes experience."
     tags = extract_tags(text)
@@ -113,35 +98,6 @@ def test_tag_overlap_score():
 
 def test_tag_overlap_score_empty_job_tags():
     assert tag_overlap_score(["python"], []) == 0.0
-
-
-def test_extract_tags_openai_parses_response():
-    fake_result = ChatResult(
-        content='{"tags": ["Backend Engineer", "Python", " FastAPI "]}',
-        model="test-model",
-        prompt_tokens=10,
-        completion_tokens=5,
-        latency_ms=1.0,
-    )
-    with patch("app.services.tag_extractor.chat_completion", return_value=fake_result):
-        tags = extract_tags_openai("some resume text")
-    assert tags == ["backend engineer", "python", "fastapi"]
-
-
-def test_extract_tags_openai_falls_back_to_empty_on_bad_response():
-    fake_result = ChatResult(
-        content="not valid json",
-        model="test-model",
-        prompt_tokens=10,
-        completion_tokens=5,
-        latency_ms=1.0,
-    )
-    with patch("app.services.tag_extractor.chat_completion", return_value=fake_result):
-        assert extract_tags_openai("some resume text") == []
-
-
-def test_extract_tags_openai_empty_for_blank_input():
-    assert extract_tags_openai("") == []
 
 
 def test_estimate_experience_ignores_unrelated_numbers_outside_date_ranges():

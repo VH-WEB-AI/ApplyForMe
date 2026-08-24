@@ -36,6 +36,24 @@ class Settings(BaseSettings):
         "professional_presence": 0.05,
     }
 
+    # Apollo people enrichment for researched leads. Blank key disables
+    # enrichment entirely -- the lead pipeline works without it.
+    apollo_api_key: str = ""
+    apollo_base_url: str = "https://api.apollo.io"
+    apollo_timeout_seconds: float = 15.0
+    # How long an Apollo entitlement verdict stays good. The probe has to call a
+    # billable, rate-limited people endpoint to learn anything, so it must not run
+    # once per page render. Plan changes are rare; 10 minutes is plenty fresh.
+    apollo_status_cache_seconds: float = 600.0
+
+    # People Data Labs -- sourcing shortlists of recent graduates. PDL carries
+    # education history (which Apollo does not), so it is the sourcing half of
+    # the lead pipeline; Apollo/ContactOut remain the contact half.
+    pdl_api_key: str = ""
+    pdl_base_url: str = "https://api.peopledatalabs.com"
+    pdl_timeout_seconds: float = 20.0
+    pdl_min_likelihood: int = 6
+
     response_validation_max_retries: int = 2
 
 

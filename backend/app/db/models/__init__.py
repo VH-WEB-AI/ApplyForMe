@@ -4,6 +4,7 @@ from app.db.models.conversation import Conversation, ConversationMessage
 from app.db.models.core import CandidateProfile, User
 from app.db.models.embeddings import EmbeddingRecord
 from app.db.models.jobs import Application, Interview, JobMatch, JobPosting
+from app.db.models.leads import ResearchLead
 from app.db.models.resume import ResumeScore, ResumeVersion
 
 __all__ = [
@@ -23,4 +24,5 @@ __all__ = [
     "Conversation",
     "ConversationMessage",
     "EmbeddingRecord",
+    "ResearchLead",
 ]

@@ -1,0 +1,8 @@
+Provider,Endpoint,Purpose,Credits,Batch Max,Returns Email,Returns Education,Limits,Status,Used By Pipeline
+Apollo,POST /api/v1/people/match,Enrich one person,1 (demographics or email); +8 if mobile phone; 0 on no match,1,yes,no,600 calls/hour,plan_blocked (Basic Trial); available on any paid plan,yes - enrich_lead
+Apollo,POST /api/v1/people/bulk_match,Enrich up to 10 people,1-9 per person; 0 on no match,10,yes,no,10 people/call; phone reveal needs webhook_url,plan_blocked (Basic Trial); available on any paid plan,yes - enrich_leads
+Apollo,POST /api/v1/mixed_people/search,Source a worklist,0,100/page,no (has_email boolean only),no,"50,000 records max (500 pages); surnames obfuscated as 'Do***e'; no education params",plan_blocked (Basic Trial); available on any paid plan,no - cannot reach fresh grads
+Apollo,GET /api/v1/people/{id},Full person record,1,1,placeholder only for non-contacts,no,email_not_unlocked@domain.com unless saved as a contact,plan_blocked (Basic Trial); available on any paid plan,no - adds nothing over people/match
+Apollo,GET /api/v1/auth/health,Key check,0,n/a,no,no,Passes on every plan - proves nothing about entitlement,available,yes - apollo_status
+PDL,GET /v5/person/enrich,Enrich one person,charged per match only; 0 on no match,1,yes,yes,"Needs LinkedIn URL, email, or name+context",available (key configured and verified against both endpoints),client exists; not wired into enrich_lead
+PDL,POST /v5/person/search,Source recent graduates,paid tier,100/call,yes,yes,SQL dialect rejects long OR-chained LIKE clauses,"available (key configured and verified against both endpoints); fresher query currently matches 36,441 people",demo script only

@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.routes import candidates, career_health, copilot, jobs, resume
+from app.api.routes import candidates, career_health, copilot, jobs, leads, resume
 from app.config import get_settings
 
 app = FastAPI(
@@ -31,6 +31,7 @@ app.include_router(resume.router)
 app.include_router(jobs.router)
 app.include_router(career_health.router)
 app.include_router(copilot.router)
+app.include_router(leads.router)
 
 
 @app.get("/health")

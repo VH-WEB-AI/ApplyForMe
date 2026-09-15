@@ -3,14 +3,17 @@ from unittest.mock import patch
 
 import docx
 
+from sqlalchemy import select
+
+from app.db.models.ai_ops import AIResponseLog
 from app.db.models.core import CandidateProfile, User
-from app.db.models.resume import ResumeVersion
+from app.db.models.resume import ResumeScore, ResumeUpload, ResumeVersion
 from app.engines.resume_intelligence.engine import ResumeIntelligenceEngine
 from app.engines.resume_intelligence.schemas import ResumeLLMOutput
 from app.orchestrator.orchestrator import AIOrchestrator
 from app.services.llm_gateway import ChatResult, EmbeddingResult
 
-FAKE_EMBEDDING = EmbeddingResult(vector=[0.01] * 1536, model="test-embedding-model", latency_ms=1.0)
+FAKE_EMBEDDING = EmbeddingResult(vector=[0.01] * 1536, model="test-embedding-model", latency_ms=1.0, tokens=40)
 
 FAKE_LLM_OUTPUT = ResumeLLMOutput(
     tags=["python", "fastapi", "kubernetes"],
@@ -124,6 +127,26 @@ def test_resume_engine_full_orchestrator_flow(db):
     resume_version = db.get(ResumeVersion, result["resumeVersionId"])
     assert resume_version.tags == ["python", "fastapi", "kubernetes"]
 
+    # every API call this upload made (embedding + chat) is stored against its resume version
+    logs = db.scalars(
+        select(AIResponseLog).where(AIResponseLog.resume_version_id == resume_version.id)
+    ).all()
+    by_model = {log.model: (log.prompt_tokens, log.completion_tokens, log.total_tokens) for log in logs}
+    assert by_model == {"test-embedding-model": (40, 0, 40), "test-model": (100, 50, 150)}
+
+    # the same totals are returned to the caller and stored on the analysis row
+    expected_usage = {
+        "promptTokens": 100,
+        "completionTokens": 50,
+        "embeddingTokens": 40,
+        "totalTokens": 190,
+        "apiCalls": 2,
+        "cached": False,
+    }
+    assert result["tokenUsage"] == expected_usage
+    score_row = db.scalar(select(ResumeScore).where(ResumeScore.resume_version_id == resume_version.id))
+    assert score_row.token_usage == expected_usage
+
 
 def test_ats_check_without_candidate_id_still_returns_full_analysis(db):
     fake_chat_result = ChatResult(
@@ -135,6 +158,7 @@ def test_ats_check_without_candidate_id_still_returns_full_analysis(db):
     )
 
     payload = {
+        "endpoint": "ats-check",
         "candidate_id": None,
         "file_bytes": _make_resume_docx(),
         "filename": "resume.docx",
@@ -142,9 +166,68 @@ def test_ats_check_without_candidate_id_still_returns_full_analysis(db):
         "target_industry": "Software",
     }
 
-    with patch("app.orchestrator.orchestrator.chat_completion", return_value=fake_chat_result):
+    # Bypass Redis: an earlier run of this test caches this exact resume, and a
+    # cache hit would (correctly) report zero token usage.
+    with (
+        patch("app.orchestrator.orchestrator.chat_completion", return_value=fake_chat_result),
+        patch("app.orchestrator.orchestrator.cache.get_cached", return_value=None),
+        patch("app.orchestrator.orchestrator.cache.set_cached"),
+    ):
         result = AIOrchestrator().handle_request("resume_intelligence", db, payload)
 
     assert result["resumeVersionId"] is None
     assert result["tags"] == ["python", "fastapi", "kubernetes"]
+    assert result["tokenUsage"] == {
+        "promptTokens": 100,
+        "completionTokens": 50,
+        "embeddingTokens": 0,
+        "totalTokens": 150,
+        "apiCalls": 1,
+        "cached": False,
+    }
+
+    # the ats-check upload is recorded with its usage, and its API call points at it
+    upload = db.get(ResumeUpload, result["uploadId"])
+    assert upload.endpoint == "ats-check"
+    assert upload.file_name == "resume.docx"
+    assert (upload.status, upload.cached) == ("success", False)
+    assert (upload.prompt_tokens, upload.completion_tokens, upload.embedding_tokens,
+            upload.total_tokens, upload.api_calls) == (100, 50, 0, 150, 1)
+    log = db.scalar(select(AIResponseLog).where(AIResponseLog.resume_upload_id == upload.id))
+    assert (log.prompt_tokens, log.completion_tokens, log.total_tokens) == (100, 50, 150)
+
     assert result["resumeScore"] == 72
+
+
+def test_ats_check_cache_hit_is_recorded_with_zero_usage(db):
+    fake_chat_result = ChatResult(
+        content=FAKE_LLM_OUTPUT.model_dump_json(),
+        model="test-model",
+        prompt_tokens=100,
+        completion_tokens=50,
+        latency_ms=250.0,
+    )
+    payload = {
+        "endpoint": "ats-check",
+        "candidate_id": None,
+        "file_bytes": _make_resume_docx(),
+        "filename": "resume.docx",
+        "target_role": "Backend Engineer",
+        "target_industry": "Software",
+    }
+    store = {}
+
+    with (
+        patch("app.orchestrator.orchestrator.chat_completion", return_value=fake_chat_result) as chat,
+        patch("app.orchestrator.orchestrator.cache.get_cached", side_effect=lambda e, k: store.get(k)),
+        patch("app.orchestrator.orchestrator.cache.set_cached", side_effect=lambda e, k, v: store.__setitem__(k, v)),
+    ):
+        first = AIOrchestrator().handle_request("resume_intelligence", db, payload)
+        second = AIOrchestrator().handle_request("resume_intelligence", db, payload)
+
+    assert chat.call_count == 1
+    assert second["uploadId"] != first["uploadId"]
+    assert second["tokenUsage"]["cached"] is True
+    assert second["tokenUsage"]["totalTokens"] == 0
+    upload = db.get(ResumeUpload, second["uploadId"])
+    assert (upload.status, upload.cached, upload.total_tokens, upload.api_calls) == ("cached", True, 0, 0)

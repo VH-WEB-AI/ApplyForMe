@@ -28,6 +28,7 @@ class EmbeddingResult:
     vector: list[float]
     model: str
     latency_ms: float
+    tokens: int = 0
 
 
 # Reasoning-tier models (o1/o3/gpt-5 families) reject any temperature other than
@@ -98,8 +99,10 @@ def create_embedding(text: str) -> EmbeddingResult:
     response = _client().embeddings.create(model=settings.openai_embedding_model, input=text)
 
     latency_ms = (time.perf_counter() - start) * 1000
+    usage = response.usage
     return EmbeddingResult(
         vector=response.data[0].embedding,
         model=response.model,
         latency_ms=latency_ms,
+        tokens=usage.prompt_tokens if usage else 0,
     )

@@ -18,6 +18,7 @@ async def analyze_resume(
 ) -> dict:
     file_bytes = await file.read()
     payload = {
+        "endpoint": "analyze",
         "candidate_id": candidate_id,
         "file_bytes": file_bytes,
         "filename": file.filename,
@@ -40,6 +41,7 @@ async def check_ats(
     no row to write to), regardless of whether a caller tries to pass one."""
     file_bytes = await file.read()
     payload = {
+        "endpoint": "ats-check",
         "candidate_id": None,
         "file_bytes": file_bytes,
         "filename": file.filename,

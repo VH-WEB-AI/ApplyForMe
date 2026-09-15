@@ -33,12 +33,24 @@ class AIResponseLog(TimestampMixin, Base):
     prompt_version_id: Mapped[int | None] = mapped_column(
         ForeignKey("prompt_versions.id"), default=None
     )
+    # Set for resume_intelligence calls made for a stored resume, so token usage
+    # can be read per upload. Null for anonymous /resume/ats-check and other engines.
+    resume_version_id: Mapped[int | None] = mapped_column(
+        ForeignKey("resume_versions.id"), index=True, default=None
+    )
+    # Set for every resume_intelligence call (ats-check and analyze): the upload
+    # request this API call was made for.
+    resume_upload_id: Mapped[int | None] = mapped_column(
+        ForeignKey("resume_uploads.id"), index=True, default=None
+    )
 
     model: Mapped[str] = mapped_column(String(100))
     prompt: Mapped[str] = mapped_column(Text)
     response: Mapped[str] = mapped_column(Text, default="")
     prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
     completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    # Summed over every attempt, including ones that failed validation and were retried.
+    total_tokens: Mapped[int] = mapped_column(Integer, default=0)
     latency_ms: Mapped[float] = mapped_column(Float, default=0.0)
     status: Mapped[str] = mapped_column(String(50), default="success")
     error: Mapped[str | None] = mapped_column(Text, default=None)

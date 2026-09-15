@@ -14,6 +14,10 @@ from app.services.prompt_builder import PromptSpec
 class Engine(ABC):
     name: str
     response_schema: type[BaseModel]
+    # When True the orchestrator puts this request's API usage in context["token_usage"],
+    # calls record_token_usage() on every outcome (success, cached, error), and returns
+    # the usage as "tokenUsage" in the response -- fresh or cached.
+    reports_token_usage: bool = False
 
     @abstractmethod
     def gather_context(self, db: Session, payload: dict[str, Any]) -> dict[str, Any]:
@@ -39,3 +43,15 @@ class Engine(ABC):
     def cache_key(self, context: dict[str, Any]) -> str | None:
         """Optional: return a stable hash to skip the LLM call when nothing changed."""
         return None
+
+    def record_token_usage(
+        self,
+        db: Session,
+        context: dict[str, Any],
+        token_usage: dict[str, Any],
+        status: str,
+        error: str | None,
+    ) -> dict[str, Any]:
+        """Optional (engines with reports_token_usage): persist this request's usage.
+        Returns extra fields to merge into the response."""
+        return {}

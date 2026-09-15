@@ -5,11 +5,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models.core import CandidateProfile
-from app.db.models.resume import ResumeScore, ResumeVersion
+from app.db.models.resume import ResumeScore, ResumeUpload, ResumeVersion
 from app.engines.resume_intelligence.schemas import RESUME_LLM_JSON_SCHEMA, ResumeLLMOutput
 from app.orchestrator.engine_base import Engine
 from app.orchestrator.registry import register_engine
-from app.services import embedding_generator
+from app.services import audit_logger, embedding_generator
 from app.services.pii_redaction import redact_pii
 from app.services.prompt_builder import PromptSpec
 from app.services.resume_parser import parse_resume
@@ -86,6 +86,7 @@ BUSINESS_RULES = [
 class ResumeIntelligenceEngine(Engine):
     name = "resume_intelligence"
     response_schema = ResumeLLMOutput
+    reports_token_usage = True
 
     def gather_context(self, db: Session, payload: dict[str, Any]) -> dict[str, Any]:
         candidate_id = payload.get("candidate_id")
@@ -98,10 +99,24 @@ class ResumeIntelligenceEngine(Engine):
         parsed = parse_resume(payload["file_bytes"], payload["filename"])
         content_hash = embedding_generator.content_hash(parsed.raw_text)
 
+        # Recorded for every request, ats-check included, before any API call so each
+        # ai_response_logs row can point at it; usage is filled in by record_token_usage().
+        upload = ResumeUpload(
+            endpoint=payload.get("endpoint") or "",
+            candidate_id=candidate_id,
+            file_name=(payload["filename"] or "")[:500],
+            content_hash=content_hash,
+            target_role=target_role[:255],
+            target_industry=target_industry[:255],
+        )
+        db.add(upload)
+        db.flush()
+
         # No candidate_id -> nothing to persist (ResumeVersion.candidate_id is a
         # NOT NULL FK) or embed for future retrieval, but the LLM analysis below
         # runs identically either way.
         resume_version_id = None
+        embedding_usage = {"tokens": 0, "calls": 0}
         if candidate_id is not None:
             resume_version = db.scalar(
                 select(ResumeVersion)
@@ -126,8 +141,32 @@ class ResumeIntelligenceEngine(Engine):
                 db.add(resume_version)
                 db.flush()
             resume_version_id = resume_version.id
+            upload.resume_version_id = resume_version_id
+
+            def log_embedding_call(result):
+                embedding_usage["tokens"] += result.tokens
+                embedding_usage["calls"] += 1
+                # Its own ai_response_logs row; chat rows are written by the orchestrator.
+                audit_logger.log_ai_call(
+                    db,
+                    engine=self.name,
+                    model=result.model,
+                    prompt="",
+                    response="",
+                    prompt_tokens=result.tokens,
+                    completion_tokens=0,
+                    latency_ms=result.latency_ms,
+                    candidate_id=candidate_id,
+                    resume_version_id=resume_version_id,
+                    resume_upload_id=upload.id,
+                )
+
             embedding_generator.get_or_create_embedding(
-                db, owner_type="resume", owner_id=resume_version.id, text=parsed.raw_text
+                db,
+                owner_type="resume",
+                owner_id=resume_version.id,
+                text=parsed.raw_text,
+                on_api_call=log_embedding_call,
             )
 
         return {
@@ -137,6 +176,8 @@ class ResumeIntelligenceEngine(Engine):
             "target_role": target_role,
             "target_industry": target_industry,
             "redacted_resume_text": redact_pii(parsed.raw_text),
+            "embedding_usage": embedding_usage,
+            "resume_upload_id": upload.id,
         }
 
     def cache_key(self, context: dict[str, Any]) -> str | None:
@@ -259,6 +300,7 @@ class ResumeIntelligenceEngine(Engine):
                 weak_sections=llm_output.weak_sections,
                 recommendations=llm_output.recommendations,
                 rewrite_suggestions=llm_output.rewrite_suggestions,
+                token_usage=context["token_usage"],
             )
             db.add(score_row)
             db.flush()
@@ -277,6 +319,19 @@ class ResumeIntelligenceEngine(Engine):
             "education": llm_output.education,
             "certifications": llm_output.certifications,
         }
+
+    def record_token_usage(self, db, context, token_usage, status, error):
+        upload = db.get(ResumeUpload, context["resume_upload_id"])
+        upload.status = status
+        upload.error = error
+        upload.cached = token_usage["cached"]
+        upload.prompt_tokens = token_usage["promptTokens"]
+        upload.completion_tokens = token_usage["completionTokens"]
+        upload.embedding_tokens = token_usage["embeddingTokens"]
+        upload.total_tokens = token_usage["totalTokens"]
+        upload.api_calls = token_usage["apiCalls"]
+        db.flush()
+        return {"uploadId": upload.id}
 
 
 register_engine(ResumeIntelligenceEngine())

@@ -1,6 +1,7 @@
 """Embedding Generator: creates and stores embeddings, and runs semantic similarity search."""
 
 import hashlib
+from collections.abc import Callable
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -14,14 +15,23 @@ def content_hash(text: str) -> str:
 
 
 def get_or_create_embedding(
-    db: Session, *, owner_type: str, owner_id: int, text: str, store_content: bool = False
+    db: Session,
+    *,
+    owner_type: str,
+    owner_id: int,
+    text: str,
+    store_content: bool = False,
+    on_api_call: Callable[[llm_gateway.EmbeddingResult], None] | None = None,
 ) -> EmbeddingRecord:
     """Returns a cached embedding for (owner_type, owner_id) if the content hasn't
     changed, otherwise generates a fresh one via the LLM gateway and stores it.
 
     `store_content` persists `text` itself on the row (used for RAG chunks, where the
     original passage needs to be retrievable) -- whole-document embeddings (resume/job)
-    leave it unset since the full text already lives on the owning row."""
+    leave it unset since the full text already lives on the owning row.
+
+    `on_api_call` is invoked only when the provider is actually called (not on a
+    cache hit), so callers can record the tokens that call used."""
     text_hash = content_hash(text)
 
     existing = db.scalar(
@@ -34,6 +44,8 @@ def get_or_create_embedding(
         return existing
 
     result = llm_gateway.create_embedding(text)
+    if on_api_call is not None:
+        on_api_call(result)
 
     if existing:
         existing.content_hash = text_hash

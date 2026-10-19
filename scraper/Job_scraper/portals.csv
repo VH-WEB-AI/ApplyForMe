@@ -1,0 +1,32 @@
+num,portal_name,url,scrape_method,confidence,notes
+1,USAJOBS,https://data.usajobs.gov/api/search,api_key_required,high,US federal jobs - needs USAJOBS_API_KEY + USAJOBS_EMAIL
+2,Adzuna USA,https://api.adzuna.com/v1/api/jobs/us/search,api_key_required,high,USA jobs - needs ADZUNA_APP_ID + ADZUNA_APP_KEY
+3,Jooble USA,https://us.jooble.org/,api_key_required,high,Official partner API - needs JOOBLE_API_KEY from jooble.org/api/about
+4,We Work Remotely,https://weworkremotely.com/remote-jobs.rss,rss,high,Remote USA jobs RSS
+5,Working Nomads,https://www.workingnomads.com/jobs,rss,high,Public RSS feed at /jobs.rss - fully automated
+6,NoDesk,https://nodesk.co/remote-jobs/,rss,medium,Public RSS feed at /remote-jobs/feed/ - fully automated
+7,Remote OK,https://remoteok.com/,api,high,Public JSON API at /api - fully automated
+8,Remotive,https://remotive.com/,api,high,Public JSON API at /api/remote-jobs - fully automated
+9,Jobicy,https://jobicy.com/api/v2/remote-jobs,api,high,Remote USA jobs - public JSON API
+10,Arbeitnow,https://www.arbeitnow.com/api/job-board-api,api,high,Tech jobs including USA - public JSON API
+11,The Muse,https://www.themuse.com/api/public/jobs,api,high,USA jobs - public JSON API
+12,Himalayas,https://himalayas.app/jobs,api,medium,Internal JSON API - dedicated handler
+13,Remote1stJobs,https://www.remote1stjobs.com/jobs.json,api,medium,UK/Europe/EMEA remote jobs - public JSON feed (no key required)
+14,Hacker News Who's Hiring,https://news.ycombinator.com/jobs,api,high,Uses public Algolia HN Search API - fully automated
+15,Greenhouse,https://boards-api.greenhouse.io/v1/boards,api,high,ATS aggregator - public JSON API across 46 verified company career pages (direct employer links); add slugs via GREENHOUSE_COMPANY_SLUGS env var
+16,Reed UK,https://www.reed.co.uk/api/1.0/search,api_key_required,high,UK jobs - needs REED_API_KEY (free at reed.co.uk/developers/jobseeker)
+17,CareerJet,http://public.api.careerjet.net/search,api_key_required,high,Global jobs - needs CAREERJET_AFFID (free at careerjet.com/partners/)
+18,Findwork,https://findwork.dev/api/jobs/,api_key_required,high,Tech jobs globally - needs FINDWORK_API_KEY (free at findwork.dev)
+19,Lever,https://api.lever.co/v0/postings/{company}?mode=json,api,high,ATS template - replace {company} with Lever company slug
+20,Ashby,https://api.ashbyhq.com/posting-api/job-board/{company}?includeCompensation=true,api,high,ATS template - replace {company} with Ashby company slug
+21,SmartRecruiters,https://api.smartrecruiters.com/v1/companies/{company}/postings,api,high,ATS template - replace {company} with SmartRecruiters company slug
+22,Workable,https://apply.workable.com/api/v1/widget/accounts/{company},api,medium,ATS template - replace {company} with Workable account slug
+23,Recruitee,https://{company}.recruitee.com/api/offers/,api,high,ATS template - replace {company} with Recruitee company subdomain
+24,Jobvite,https://jobs.jobvite.com/{company}/jobs,generic,medium,Jobvite careers page - replace {company} with Jobvite company slug
+25,Robert Half,https://www.roberthalf.com/us/en/jobs,generic,medium,US staffing jobs page
+26,Randstad,https://www.randstadusa.com/jobs/,generic,medium,US staffing jobs page
+27,TEKsystems,https://careers.teksystems.com/us/en/search-results,generic,medium,US staffing careers search page
+28,Actalent,https://careers.actalentservices.com/us/en/search-results,generic,medium,US staffing careers search page
+29,Aerotek,https://jobs.aerotek.com/us/en,generic,medium,US staffing jobs page
+30,Beacon Hill,https://jobs.beaconhillstaffing.com/jobs/,generic,medium,US staffing jobs page
+31,Vaco,https://jobs.vaco.com/home,generic,medium,US staffing jobs page

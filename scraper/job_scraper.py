@@ -113,12 +113,166 @@ def extract_required_skills(text):
             found.add(canonical)
     return sorted(found)
 
+import yake
+
+_TAG_EXTRACTOR = yake.KeywordExtractor(lan="en", n=2, top=30, dedupLim=0.9)
+
+
+def extract_tags(text, max_tags=15):
+    """Extracts up to max_tags keyphrases via YAKE, most relevant first,
+    mirroring backend/app/services/tag_extractor.py so scraped jobs use the
+    same tagging scheme as jobs ingested through the AI engine."""
+    if not text or not text.strip():
+        return []
+    try:
+        keywords = _TAG_EXTRACTOR.extract_keywords(text)
+    except Exception:
+        return []
+    return [keyword.lower() for keyword, _score in keywords[:max_tags]]
+
+
+# Deterministic cleanup for YAKE's raw candidates -- tried three different
+# small open-source LLM approaches for this (plain generation, few-shot +
+# stopping-criteria generation, and constrained list-filtering) and all three
+# failed on real scraped rows (repetition loops/prompt-copying, hallucinated
+# fluff, or inventing phrases despite an explicit "don't invent" instruction).
+# This filter targets the two concrete noise patterns that testing surfaced:
+# company-name fragments ("cvs health", "sam club") and generic job-posting
+# boilerplate that YAKE has no way to distinguish from an actual skill.
+_GENERIC_FILLER_TAGS = {
+    "great", "good", "amazing", "excellent", "outstanding", "exceptional",
+    "position", "position summary", "summary", "job description", "description",
+    "job", "create", "work", "works", "working", "member", "members", "people",
+    "day", "days", "time", "team", "teams", "heart", "pride", "impression",
+    "impressions", "clean", "positive", "positive attitude", "ensuring",
+    "helping", "established", "goals established", "feet", "front end",
+    "care", "belongings", "life", "colleagues", "dedicated colleagues",
+    "purpose-driven colleagues", "local presence", "digital channels",
+    "nation leading", "reach millions", "americans", "transforming health",
+    "leading health", "health solutions", "solutions company",
+    "great things", "things happen", "things", "happen",
+    "role", "make", "company", "area", "safe", "contributing",
+    "required", "provide", "purpose", "complete", "items", "base",
+}
+_NON_ALNUM_RE = re.compile(r"[^a-z0-9 ]")
+
+
+def _normalize_for_match(text):
+    return _NON_ALNUM_RE.sub("", text.lower()).strip()
+
+
+def _is_company_name_tag(tag, company):
+    """True if `tag` is the company's name or an abbreviation/fragment of it
+    (e.g. "cvs" / "cvs health" for company "CVS Health", "sam club" for
+    "Sam's Club") -- these are noise, not a skill or role keyword."""
+    if not company:
+        return False
+    tag_norm = _normalize_for_match(tag)
+    company_norm = _normalize_for_match(company)
+    if not tag_norm or not company_norm:
+        return False
+    tag_words = set(tag_norm.split())
+    company_words = set(company_norm.split())
+    return (
+        tag_words <= company_words
+        or tag_norm in company_norm
+        or company_norm in tag_norm
+    )
+
+
+def _dedupe_overlapping_tags(tags):
+    """Collapses near-duplicate fragments of the same phrase, e.g. YAKE
+    returning "custodian", "maintenance custodian", AND "custodian associate"
+    as three separate tags for one job title. Longest phrase first, so a
+    shorter fragment is dropped once a longer phrase already covers all of
+    its words; distinct phrases that merely share one word (e.g.
+    "maintenance custodian" vs "custodian associate") are both kept."""
+    ordered = sorted(tags, key=lambda t: -len(t.split()))
+    kept, kept_word_sets = [], []
+    for tag in ordered:
+        words = set(tag.split())
+        if any(words <= kept_words for kept_words in kept_word_sets):
+            continue
+        kept.append(tag)
+        kept_word_sets.append(words)
+    return kept
+
+
+def clean_tags(tags, company=""):
+    """Deterministic cleanup pass on top of YAKE's raw keyphrases: drops the
+    company's own name/abbreviations, a curated list of generic job-posting
+    filler, and collapses near-duplicate phrase fragments. No LLM involved --
+    see the comment above `_GENERIC_FILLER_TAGS` for why."""
+    filtered = [
+        t for t in tags
+        if t.lower() not in _GENERIC_FILLER_TAGS and not _is_company_name_tag(t, company)
+    ]
+    return _dedupe_overlapping_tags(filtered)
+
+
+def _first_balanced_json_object(text):
+    """Returns the first substring starting at some "{" that has balanced
+    braces (i.e. the first complete top-level JSON object), skipping any "{"
+    that never closes. Needed because the model tends to ramble into repeated
+    example blocks after the first one -- a naive first-"{"-to-last-"}" scan
+    (extract_json_object) would swallow all of them into one invalid blob."""
+    start = text.find("{")
+    while start != -1:
+        depth = 0
+        for i in range(start, len(text)):
+            if text[i] == "{":
+                depth += 1
+            elif text[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    return text[start:i + 1]
+        start = text.find("{", start + 1)
+    return None
+
+
+def extract_tags_llm(text, max_tags=15):
+    """Same intent as extract_tags, but asks the local Gemma model (LLM_MODEL)
+    to name the job's key skills/topics instead of YAKE's statistical keyphrases.
+    Returns [] (never raises) if the model isn't available or output can't be parsed."""
+    if not text or not text.strip():
+        return []
+    if not get_llm_client():
+        return []
+    prompt = (
+        "Job posting:\n" + _truncate_for_llm(text, 1200) + "\n\n"
+        f"Task: read the job posting above and pick up to {max_tags} words or short "
+        "phrases from it (skills, tools, role type) that best tag this specific "
+        "posting. Do not reuse any words from these instructions. Respond with only "
+        'a JSON object shaped {"tags": [...]}, lowercase, no explanation.'
+    )
+    response = generate_llm_response(prompt, max_new_tokens=100, repetition_penalty=1.3, no_repeat_ngram_size=3)
+    if not response:
+        return []
+    # generate_llm_response returns prompt+continuation; the prompt itself
+    # contains example braces, so only look at what comes after it.
+    continuation = response[len(prompt):] if response.startswith(prompt) else response
+    json_text = _first_balanced_json_object(continuation)
+    if not json_text:
+        return []
+    try:
+        parsed = json.loads(json_text)
+    except json.JSONDecodeError:
+        return []
+    tags = parsed.get("tags")
+    if not isinstance(tags, list):
+        return []
+    return [str(tag).strip().lower() for tag in tags if str(tag).strip()][:max_tags]
+
+
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; JobResearchBot/1.0; "
                   "+https://example.com/bot-info)"
 }
 TIMEOUT = 15
 REQUEST_DELAY = 1.0  # be polite between requests
+ADMIN_API_RATE_LIMIT_DELAY = float(os.environ.get("ADMIN_API_RATE_LIMIT_DELAY", "5.0"))
+ADMIN_API_MAX_RETRIES = int(os.environ.get("ADMIN_API_MAX_RETRIES", "6"))
+ADMIN_API_MAX_LOCATION_LEN = 160
 
 FIELDNAMES = [
     "Portal", "Job Title", "Company", "URL", "About the job", "Pay",
@@ -141,6 +295,13 @@ ADMIN_API_TIMEOUT = int(os.environ.get("ADMIN_API_TIMEOUT", "30"))
 # doesn't resend the same postings — the admin API itself has no known dedup behavior.
 ADMIN_API_STATE_PATH = os.environ.get("ADMIN_API_STATE_PATH", "").strip() or os.path.join(
     os.path.dirname(__file__), "admin_sent_jobs.json"
+)
+# Mirror panel (e.g. https://admin.yorrp.com/api/jobs/intake): same backend and
+# intake key, different database, so it keeps its own state file.
+ADMIN_API_MIRROR_URL = os.environ.get("ADMIN_API_MIRROR_URL", "").strip()
+ADMIN_API_MIRROR_TOKEN = os.environ.get("ADMIN_API_MIRROR_TOKEN", "").strip() or ADMIN_API_TOKEN
+ADMIN_API_MIRROR_STATE_PATH = os.environ.get("ADMIN_API_MIRROR_STATE_PATH", "").strip() or os.path.join(
+    os.path.dirname(__file__), "admin_sent_jobs.mirror.json"
 )
 # The admin API rejects descriptions over 8000 chars (seen live: "description must be
 # shorter than or equal to 8000 characters"); trim with margin rather than hit the exact limit.
@@ -190,8 +351,17 @@ PAY_RE = re.compile(
     re.IGNORECASE,
 )
 
+# US state codes, so ", CA" is recognised as a place while ", CI" (from CI/CD),
+# ", AI" and ", PR" are not - the bare [A-Z]{2} this used to accept was matching
+# any capitalised initialism and storing it as the job's location.
+_US_STATE_CODES = (
+    "AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|"
+    "MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC"
+)
+
 LOCATION_HINTS = re.compile(
-    r"(remote|hybrid|on[- ]?site|onsite)\b|,\s?[A-Z]{2}\b|"
+    r"(remote|hybrid|on[- ]?site|onsite)\b|"
+    r"[A-Z][a-z.\-]+(?: [A-Z][a-z.\-]+){0,2},\s?(?:" + _US_STATE_CODES + r")\b|"
     r"\b(USA|United States|New York|San Francisco|Austin|Chicago|Seattle|Boston)\b"
 )
 
@@ -451,7 +621,7 @@ def get_llm_client():
 
     hf_kwargs = {}
     if HF_TOKEN:
-        hf_kwargs = {"token": HF_TOKEN, "use_auth_token": HF_TOKEN}
+        hf_kwargs = {"token": HF_TOKEN}
     candidates = get_model_candidates(LLM_MODEL)
     last_error = None
     for candidate in candidates:
@@ -488,12 +658,14 @@ def get_llm_client():
     return None
 
 
-def generate_llm_response(prompt, max_new_tokens=LLM_MAX_TOKENS):
+def generate_llm_response(prompt, max_new_tokens=LLM_MAX_TOKENS, **generate_kwargs):
     client = get_llm_client()
     if client is None:
         return None
     try:
-        responses = client(prompt, max_new_tokens=max_new_tokens, temperature=LLM_TEMPERATURE)
+        responses = client(
+            prompt, max_new_tokens=max_new_tokens, temperature=LLM_TEMPERATURE, **generate_kwargs
+        )
         if not responses:
             return None
         return responses[0]["generated_text"]
@@ -815,6 +987,98 @@ def scrape_remotive(limit=50):
     return rows
 
 
+# --- Hacker News "Who is hiring?" header parsing ---------------------------
+# Postings follow a pipe-delimited convention with the company first and the
+# remaining segments in arbitrary order:
+#     Odin | Senior Design Engineer | Remote (US) | Full-time | $150-250k
+# so each segment is classified by shape rather than by position.
+
+_HN_SALARY_RE = re.compile(r"(\$|€|£)\s?\d|(?<!\w)\d{2,3}\s?-\s?\d{2,3}\s?k|\d{2,3}k(?!\w)", re.I)
+_HN_TYPE_RE = re.compile(r"\b(full[\s-]?time|part[\s-]?time|contract(or)?|intern(ship)?|freelance|temporary|permanent)\b", re.I)
+_HN_REMOTE_RE = re.compile(r"\b(remote|onsite|on-site|hybrid|wfh|distributed)\b", re.I)
+_HN_ROLE_RE = re.compile(r"\b(engineer|developer|designer|manager|scientist|analyst|architect|lead|director|devops|sre|founding|intern|researcher|cto|staff|principal|senior|junior|full[\s-]?stack|frontend|backend|data|ml|ai|security|qa|support|sales|marketing|roles?|positions?)\b", re.I)
+_HN_GEO_RE = re.compile(r"\b(US|USA|UK|EU|EMEA|APAC|NYC|SF|Canada|London|Berlin|Paris|Amsterdam|India|Germany|Australia|Singapore|Tokyo|Toronto|Austin|Seattle|Boston|Chicago|Denver|Poland|Spain|Portugal|Brazil|Israel|Europe|Worldwide|Anywhere)\b", re.I)
+# Work-authorisation clauses are not locations.
+_HN_AUTHZ_RE = re.compile(r"\b(must be|work[- ]authoriz|visa|citizen|green card|sponsorship|eligible)\b", re.I)
+# A company segment often carries the poster's domain or a tagline.
+_HN_COMPANY_TAIL_RE = re.compile(r"\s+-\s+.*\b(engineer|developer|designer|manager|full[\s-]?time|part[\s-]?time|remote|onsite|contract)\b.*$", re.I)
+_HN_URL_RE = re.compile(r"https?://\S+")
+# Deliberately narrower than _HN_ROLE_RE: used only to detect that a poster put
+# a job title where the company belongs. _HN_ROLE_RE matches "ai" and "data",
+# which appear in plenty of real company names ("Ai2 / Allen Institute for AI").
+_HN_TITLE_SHAPED_RE = re.compile(r"\b(engineer|developer|designer|manager|analyst|architect|scientist|administrator|specialist)\b", re.I)
+
+
+def _hn_clean_company(raw):
+    name = re.sub(r"\s*\((series [a-z]|yc[\s\W]|seed|pre-seed)[^)]*\)", "", raw, flags=re.I)
+    name = re.split(r"\s*\(", name)[0]
+    name = _HN_COMPANY_TAIL_RE.sub("", name)
+    return name.strip(" (),-/|").strip()
+
+
+def parse_hn_header(header):
+    """Splits one HN posting header into company / title / location.
+
+    Returns a dict; company or title may be empty when the poster didn't follow
+    the convention, which the caller treats as "leave it blank" rather than
+    inventing a value.
+    """
+    out = {"company": "", "title": "", "location": "", "clean_header": ""}
+    header = _HN_URL_RE.sub(" ", header or "")
+    header = re.sub(r"\(\s*\)", " ", header)
+    header = re.sub(r"\s+", " ", header).strip()
+    out["clean_header"] = header
+    segments = [s.strip() for s in header.split("|") if s.strip()]
+    # Not every top-level comment follows the convention - some are plain prose
+    # replies. Parsing those would store a whole sentence as the company, so
+    # they are left for the caller to fall back on.
+    if "|" not in header or not segments or len(segments[0]) > 60 or len(segments[0].split()) > 7:
+        return out
+
+    roles, locations = [], []
+    # A minority of posters lead with the location ("Cologne, Germany | UMH | ...").
+    lead, rest = segments[0], segments[1:]
+    if (rest and _HN_GEO_RE.search(lead) and "," in lead
+            and not _HN_ROLE_RE.search(lead) and len(lead.split()) <= 4):
+        locations.append(lead)
+        lead, rest = rest[0], rest[1:]
+    out["company"] = _hn_clean_company(lead)
+
+    for seg in rest:
+        # Long segments are usually body prose that escaped the <p> split, but
+        # a multi-role listing is legitimately long ("Senior/Lead Platform &
+        # DevOps Engineer, Senior Frontend Engineer, Senior Full-Stack").
+        if len(seg) > 90 and not _HN_ROLE_RE.search(seg):
+            continue
+        if _HN_SALARY_RE.search(seg) and not _HN_ROLE_RE.search(seg):
+            continue
+        # Role is tested before type: "Part-Time Platform Engineer" is a role
+        # that merely contains a type word.
+        if _HN_ROLE_RE.search(seg):
+            roles.append(seg)
+            continue
+        if _HN_AUTHZ_RE.search(seg) and not _HN_REMOTE_RE.search(seg):
+            continue
+        if _HN_REMOTE_RE.search(seg):
+            locations.append(seg)
+            continue
+        if _HN_TYPE_RE.search(seg) and len(seg) < 30:
+            continue
+        if _HN_GEO_RE.search(seg) or "," in seg:
+            locations.append(seg)
+            continue
+        if len(seg) <= 60:                # unusual wording, e.g. "kdb+/q Expert"
+            roles.append(seg)
+
+    out["title"] = "; ".join(roles)
+    out["location"] = "; ".join(locations[:2])
+    # A company-shaped-like-a-role segment means the poster omitted the company.
+    if out["company"] and _HN_TITLE_SHAPED_RE.search(out["company"]) and len(out["company"].split()) > 2:
+        out["title"] = out["title"] or out["company"]
+        out["company"] = ""
+    return out
+
+
 def scrape_hn_whoshiring(limit=50):
     """Uses the public Algolia Hacker News Search API to find the latest
     'Ask HN: Who is hiring?' thread and pulls top-level comments as postings."""
@@ -840,9 +1104,23 @@ def scrape_hn_whoshiring(limit=50):
         text = comment.get("text") or ""
         if not text:
             continue
-        first_line = clean_text(text).split("\n")[0][:120]
+        # HN separates the pipe-delimited header from the body with <p>, so
+        # splitting there keeps body prose out of the last header segment.
+        # The header is NOT truncated here - cutting it at 120 chars used to
+        # drop the salary and location segments before they could be parsed.
+        header = clean_text(re.split(r"<p>", text, maxsplit=1)[0])
+        parsed = parse_hn_header(header)
         url = f"https://news.ycombinator.com/item?id={comment.get('id')}"
-        row = make_row("Hacker News Who's Hiring", first_line, "", url, text)
+        row = make_row(
+            "Hacker News Who's Hiring",
+            # Falling back to the header keeps a posting that doesn't follow
+            # the convention usable; the URL-stripped form is the readable one.
+            parsed["title"] or parsed["clean_header"][:120] or header[:120],
+            parsed["company"],
+            url,
+            text,
+            location_hint=parsed["location"],
+        )
         if row:
             rows.append(row)
     return rows
@@ -927,6 +1205,42 @@ def scrape_adzuna(limit=50):
     return rows
 
 
+def usajobs_description(descriptor):
+    """Assembles the posting from every field that carries job content.
+
+    JobSummary on its own is the announcement's blurb - typically 100-400
+    characters, which is why 91 USAJOBS records reached the board too short to
+    tag. The substance lives in sibling fields: on a sampled announcement
+    JobSummary held 383 characters against 4,183 in MajorDuties, 4,209 in
+    QualificationSummary and 1,998 in Requirements.
+
+    Only the fields describing the JOB are joined. HowToApply, RequiredDocuments,
+    WhatToExpectNext and Evaluations describe the APPLICATION, and are the same
+    federal boilerplate on every announcement - including them would hand the
+    tagger "supporting documentation" and "direct deposit" as if they were
+    skills.
+    """
+    details = descriptor.get("UserArea", {}).get("Details", {}) or {}
+    parts = []
+    for value in (details.get("JobSummary"),
+                  details.get("MajorDuties"),
+                  descriptor.get("QualificationSummary"),
+                  details.get("Requirements"),
+                  details.get("Education")):
+        # MajorDuties arrives as a JSON-encoded list in a string, not a string.
+        if isinstance(value, str) and value.startswith("["):
+            try:
+                value = " ".join(str(v) for v in json.loads(value))
+            except ValueError:
+                pass
+        elif isinstance(value, list):
+            value = " ".join(str(v) for v in value)
+        text = clean_text(value or "").strip()
+        if text and text not in parts:
+            parts.append(text)
+    return "\n\n".join(parts)
+
+
 def scrape_usajobs(limit=50):
     api_key = os.environ.get("USAJOBS_API_KEY")
     email = os.environ.get("USAJOBS_EMAIL")
@@ -958,7 +1272,7 @@ def scrape_usajobs(limit=50):
         title = d.get("PositionTitle", "")
         company = d.get("OrganizationName", "")
         url = d.get("PositionURI", "")
-        desc = d.get("UserArea", {}).get("Details", {}).get("JobSummary", "") or d.get("QualificationSummary", "")
+        desc = usajobs_description(d)
         locations = d.get("PositionLocationDisplay", "")
         pay = ""
         remun = d.get("PositionRemuneration", [])
@@ -1216,7 +1530,27 @@ def _admin_salary_range(pay):
 
 
 def _admin_build_description(row):
-    parts = [row.get("About the job") or row.get("Summary", "")]
+    """Joins the scraped sections back into one description for the admin API.
+
+    "About the job" and "Summary" are both kept. They used to be an either/or,
+    which silently truncated any posting whose text began with a line that
+    parse_sections recognised as a header: Walmart's postings open with
+    "Position Summary...\nWhat you'll do...", so "What you'll do" was matched as
+    a Responsibilities header, everything above it became a 19-character "About
+    the job", and being non-empty it beat the Summary carrying the actual
+    posting. 451 Walmart records reached the board as the literal string
+    "Position Summary..." that way. Sanofi/BioSpace postings failed the same
+    way on a "Job title: ... Location: ..." preamble.
+
+    Summary is dropped only when it is already inside About - parse_sections
+    falls back to Summary = about[:600] when a posting has no headers at all,
+    and repeating that prefix would just make every such description start twice.
+    """
+    about = (row.get("About the job") or "").strip()
+    summary = (row.get("Summary") or "").strip()
+    parts = [about] if about else []
+    if summary and summary not in about:
+        parts.append(summary)
     if row.get("Responsibilities"):
         parts.append("Responsibilities:\n" + row["Responsibilities"])
     if row.get("Requirements"):
@@ -1226,20 +1560,39 @@ def _admin_build_description(row):
     return "\n\n".join(part for part in parts if part).strip()
 
 
+def _admin_normalize_location(value, max_len=ADMIN_API_MAX_LOCATION_LEN):
+    text = (value or "").strip()
+    if len(text) <= max_len:
+        return text
+    return text[:max_len].rstrip()
+
+
+def _admin_list_object(values):
+    """The admin API's CreateJobDto declares requiredSkills/tags as bare string
+    arrays (@IsArray + @IsString({each:true})), and its ValidationPipe runs with
+    whitelist:true, so an {"items": [...]} wrapper fails validation with a 400.
+    Verified against the live endpoint: a bare array returns 201."""
+    items = values if isinstance(values, list) else []
+    return [str(v).strip() for v in items if str(v).strip()]
+
+
 def row_to_admin_job_payload(row):
     """Maps one scraped row (see FIELDNAMES) onto the admin API's job-creation
     body shape: {company, role, platform, location, remote, salaryMin, salaryMax,
     seniority, visaSponsorship, employmentType, description, requiredSkills,
-    sourceLink, active}."""
+    sourceLink, active}. List-valued fields are sent as bare arrays - see
+    _admin_list_object."""
     title = (row.get("Job Title") or "").strip()
     company = (row.get("Company") or "").strip()
     if not title or not company:
         return None
 
-    location = row.get("Location") or ""
+    location = _admin_normalize_location(row.get("Location") or "")
     description = _admin_build_description(row)[:ADMIN_API_DESCRIPTION_MAX_LEN]
     salary_min, salary_max = _admin_salary_range(row.get("Pay", ""))
     combined_text = f"{title} {description}"
+    required_skills = extract_required_skills(combined_text)
+    tags = clean_tags(extract_tags(combined_text, max_tags=25), company=company)
 
     return {
         "company": company,
@@ -1253,7 +1606,12 @@ def row_to_admin_job_payload(row):
         "visaSponsorship": bool(_ADMIN_VISA_RE.search(combined_text)),
         "employmentType": _admin_infer_employment_type(combined_text),
         "description": description or title,
-        "requiredSkills": extract_required_skills(combined_text),
+        "requiredSkills": _admin_list_object(required_skills),
+        # Pull a larger raw candidate pool than we want to end up with --
+        # clean_tags() drops company-name/filler noise and merges duplicate
+        # fragments, so starting from more candidates gives it more to work
+        # with instead of already being truncated down to 15 pre-cleanup.
+        "tags": _admin_list_object(tags),
         "sourceLink": row.get("URL", ""),
         "active": True,
     }
@@ -1321,26 +1679,70 @@ def post_rows_to_admin_api(rows, url=None, token=None, timeout=None, state_path=
         payload = row_to_admin_job_payload(row)
         if payload is None:
             continue
-        try:
-            resp = requests.post(url, json=payload, headers=headers, timeout=timeout)
-            if resp.ok:
-                sent += 1
-                sent_keys.update(keys)
-                _save_admin_sent_keys(state_path, sent_keys)
-                print(f"  [admin-api][ok] {payload['role']!r} @ {payload['company']!r} "
-                      f"-> {resp.status_code} {resp.text[:300]}")
-            else:
+
+        last_resp = None
+        for attempt in range(1, ADMIN_API_MAX_RETRIES + 1):
+            try:
+                resp = requests.post(url, json=payload, headers=headers, timeout=timeout)
+                last_resp = resp
+                if resp.ok:
+                    sent += 1
+                    sent_keys.update(keys)
+                    _save_admin_sent_keys(state_path, sent_keys)
+                    print(f"  [admin-api][ok] {payload['role']!r} @ {payload['company']!r} "
+                          f"-> {resp.status_code} {resp.text[:300]}")
+                    break
+
+                if resp.status_code == 429:
+                    print(f"  [admin-api][throttle] {payload['role']!r} @ {payload['company']!r} "
+                          f"attempt {attempt}/{ADMIN_API_MAX_RETRIES}: rate limited; sleeping "
+                          f"{ADMIN_API_RATE_LIMIT_DELAY * attempt}s")
+                    if attempt < ADMIN_API_MAX_RETRIES:
+                        time.sleep(ADMIN_API_RATE_LIMIT_DELAY * attempt)
+                        continue
+                    failed += 1
+                    print(f"  [admin-api][warn] {payload['role']!r} @ {payload['company']!r} "
+                          f"failed after retries: {resp.status_code} {resp.text[:300]}", file=sys.stderr)
+                    break
+
+                if resp.status_code == 400 and "location" in resp.text.lower():
+                    trimmed = _admin_normalize_location(payload.get("location"))
+                    if trimmed != payload.get("location"):
+                        print(f"  [admin-api][trim] {payload['role']!r} @ {payload['company']!r} "
+                              f"location too long; retrying with {len(trimmed)} chars")
+                        payload["location"] = trimmed
+                        if attempt < ADMIN_API_MAX_RETRIES:
+                            time.sleep(REQUEST_DELAY)
+                            continue
+
                 failed += 1
                 print(f"  [admin-api][warn] {payload['role']!r} @ {payload['company']!r} "
                       f"failed: {resp.status_code} {resp.text[:300]}", file=sys.stderr)
-        except requests.RequestException as e:
-            failed += 1
-            print(f"  [admin-api][warn] {payload['role']!r} request error: {e}", file=sys.stderr)
+                break
+            except requests.RequestException as e:
+                last_resp = e
+                if attempt < ADMIN_API_MAX_RETRIES:
+                    print(f"  [admin-api][retry] {payload['role']!r} request error (attempt {attempt}/{ADMIN_API_MAX_RETRIES}): {e}; backoff {REQUEST_DELAY * attempt}s")
+                    time.sleep(REQUEST_DELAY * attempt)
+                    continue
+                failed += 1
+                print(f"  [admin-api][warn] {payload['role']!r} request error: {e}", file=sys.stderr)
+                break
+
         time.sleep(REQUEST_DELAY)
 
     print(f"  [admin-api] {sent} job(s) posted, {skipped} already sent previously, "
           f"{failed} failed (of {sent + skipped + failed} scraped)")
     return sent, skipped, failed
+
+
+def post_rows_to_all_admin_apis(rows):
+    """Posts to the primary admin panel and, when configured, the mirror."""
+    post_rows_to_admin_api(rows)
+    if ADMIN_API_MIRROR_URL:
+        print(f"  [admin-api] mirroring {len(rows)} row(s) to {ADMIN_API_MIRROR_URL}")
+        post_rows_to_admin_api(rows, url=ADMIN_API_MIRROR_URL, token=ADMIN_API_MIRROR_TOKEN,
+                               state_path=ADMIN_API_MIRROR_STATE_PATH)
 
 
 def run(csv_path, out_path, limit_per_portal, only=None, post_to_backend=False, post_to_admin=True,
@@ -1383,7 +1785,7 @@ def run(csv_path, out_path, limit_per_portal, only=None, post_to_backend=False, 
             batch = all_rows[posted_up_to:]
             print(f"  [admin-api] posting batch of {len(batch)} rows "
                   f"(scraped {len(all_rows)} total so far)")
-            post_rows_to_admin_api(batch)
+            post_rows_to_all_admin_apis(batch)
             posted_up_to = len(all_rows)
 
         time.sleep(REQUEST_DELAY)
@@ -1410,7 +1812,7 @@ def run(csv_path, out_path, limit_per_portal, only=None, post_to_backend=False, 
     if post_to_admin and len(all_rows) > posted_up_to:
         final_batch = all_rows[posted_up_to:]
         print(f"  [admin-api] posting final batch of {len(final_batch)} row(s)")
-        post_rows_to_admin_api(final_batch)
+        post_rows_to_all_admin_apis(final_batch)
 
     return all_rows
 

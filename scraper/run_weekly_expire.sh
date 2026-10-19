@@ -2,7 +2,7 @@
 # Weekly expiry sweep on both panels (primary first; the mirror reuses its verdicts).
 # Waits for the daily run's lock so the two never overlap. --recheck-alive-days 1 lets an
 # interrupted sweep resume without rechecking what it already covered today.
-cd /home/vhits/applyForMe/scraper || exit 1
+cd "$(dirname "$0")" || exit 1
 mkdir -p daily_runs
 exec flock -w 14400 daily_runs/.lock sh -c '
   .venv/bin/python -u expire_jobs.py --fetch --check --browser --recheck-alive-days 1 --apply &&

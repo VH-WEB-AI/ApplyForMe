@@ -113,14 +113,19 @@ python3 expire_jobs.py --panel mirror --fetch --check --browser --apply
 python3 verify_panel.py --panel mirror
 ```
 
-## 4. Weekly automation
+## 4. Daily automation
+
+`./install_cron.sh` installs everything (safe to rerun):
 
 ```cron
-# Sunday 04:00 — sweep expired postings on both panels (primary first)
-0 4 * * 0 cd /home/vhits/applyForMe/scraper && \
-  python3 expire_jobs.py --fetch --check --browser --apply >> expire_jobs.log 2>&1 && \
-  python3 expire_jobs.py --panel mirror --fetch --check --browser --apply >> expire_jobs.log 2>&1
+@reboot sleep 180 && run_catchup.sh          # daily scrape -> post, if yesterday not done yet
+30 7-22 * * * run_catchup.sh
+@reboot sleep 600 && run_expire_catchup.sh   # daily expiry sweep, once per day
+45 7-22 * * * run_expire_catchup.sh
 ```
 
-Run the sweep right after each ingest too, not only weekly: roughly 6% of a fresh
-batch is already closed at the source on the day it is posted.
+`run_expire.sh` sweeps the primary then the mirror, writes today's date to
+`daily_runs/last_expire_success`, then runs `verify_panel.py` on both. It waits on the
+daily run's lock, so a scrape and a sweep never overlap. Log: `daily_runs/expire.log`.
+The sweep runs daily because roughly 6% of a fresh batch is already closed at the
+source on the day it is posted.

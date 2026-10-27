@@ -10,8 +10,9 @@ Five invariants, each pass/fail with the offending ids listed:
   2. industry is one of the 48 agreed industries
   3. category + subcategory is a pair that exists in the master taxonomy
   4. every job has at least MIN_TAGS tags
-  5. no duplicates — no repeated sourceLink, and among URL-less rows no repeated
-     company + role + location
+  5. no duplicates among active jobs — no repeated sourceLink, and among URL-less
+     rows no repeated company + role + location (repair_panel.py deactivates the
+     extra copies, so inactive ones no longer count)
 
 Exits non-zero if anything fails, so it can gate a cron.
 """
@@ -96,6 +97,8 @@ def audit(jobs):
     urls = Counter()
     triples = Counter()
     for job in jobs:
+        if str(job.get("active", "")).lower() not in ("true", "1"):
+            continue
         url = (job.get("sourceLink") or "").strip().lower()
         if url:
             urls[url] += 1
@@ -106,9 +109,9 @@ def audit(jobs):
     dup_url = sum(v - 1 for v in urls.values() if v > 1)
     dup_triple = sum(v - 1 for v in triples.values() if v > 1)
     if dup_url:
-        failures["5a. duplicate sourceLink"].append(f"{dup_url} redundant rows")
+        failures["5a. duplicate sourceLink (active)"].append(f"{dup_url} redundant rows")
     if dup_triple:
-        failures["5b. duplicate company+role+location (no URL)"].append(
+        failures["5b. duplicate company+role+location (no URL, active)"].append(
             f"{dup_triple} redundant rows")
 
     return failures
@@ -149,8 +152,8 @@ def main():
         "2. industry not in the 48",
         "3. category/subcategory not a valid pair",
         f"4. fewer than {MIN_TAGS} tags",
-        "5a. duplicate sourceLink",
-        "5b. duplicate company+role+location (no URL)",
+        "5a. duplicate sourceLink (active)",
+        "5b. duplicate company+role+location (no URL, active)",
     ]
     for check in checks:
         bad = failures.get(check, [])

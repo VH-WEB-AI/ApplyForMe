@@ -125,7 +125,9 @@ python3 verify_panel.py --panel mirror
 ```
 
 `run_expire.sh` sweeps the primary then the mirror, writes today's date to
-`daily_runs/last_expire_success`, then runs `verify_panel.py` on both. It waits on the
+`daily_runs/last_expire_success`, runs `repair_panel.py --apply` on both (fixes missing or
+invalid taxonomy, tops tags up to 7, deactivates duplicate active copies), then runs
+`verify_panel.py` on both. `python3 repair_panel.py` without `--apply` only prints the plan. It waits on the
 daily run's lock, so a scrape and a sweep never overlap. Log: `daily_runs/expire.log`.
 The sweep runs daily because roughly 6% of a fresh batch is already closed at the
 source on the day it is posted.

@@ -19,7 +19,7 @@ The gate enforces the must-rules before anything is posted:
   3. a real description (not a stub); over 8000 chars is trimmed at a paragraph break
   4. US-only (explicit non-US rows are dropped, ambiguous ones are held)
 Descriptions are completed before the gate: USAJOBS rows from the announcement page, incomplete
-Greenhouse rows from the Greenhouse API (refetch_descriptions.py). A USAJOBS row whose page can't be
+Greenhouse / SmartRecruiters / Ashby rows from their public APIs (refetch_descriptions.py). A USAJOBS row whose page can't be
 fetched is held, not posted with the API's truncated text.
 plus: no confirmed-dead link (404/410). Rows that pass are posted; rows that fail
 go to held.csv with the reason, to be fixed by hand and posted later.
@@ -53,7 +53,7 @@ SKIP_LINK_HOSTS = ("linkedin.com", "indeed.com")   # answer bots with 401/403, s
 
 csv.field_size_limit(sys.maxsize)
 
-from refetch_descriptions import refetch_greenhouse  # noqa: E402
+from refetch_descriptions import refetch_ats  # noqa: E402
 
 
 LAST_SUCCESS = os.path.join(RUNS_DIR, "last_success.json")
@@ -326,9 +326,9 @@ def run_once(args):
             run([PY, "fetch_full_descriptions.py", "--csv", clean, "--out", full, "--host", "usajobs",
                  "--workers", "4"], logfile=logfile)
             fields_f, rows_f = read_csv(full)
-            gh = refetch_greenhouse(rows_f)
-            log(f"greenhouse descriptions: {gh}")
-            summary["greenhouse_refetch"] = gh
+            ats = refetch_ats(rows_f)
+            log(f"greenhouse/smartrecruiters/ashby descriptions: {ats}")
+            summary["ats_refetch"] = ats
             write_csv(full, fields_f, rows_f)
         # A USAJOBS row the page fetch missed still carries the API's truncated text: hold it.
         unfetched = p("full_unfetched.csv")

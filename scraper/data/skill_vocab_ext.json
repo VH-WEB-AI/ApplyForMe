@@ -1,0 +1,336 @@
+{
+ "AWS": [
+  "aws"
+ ],
+ "Account Management": [
+  "account management"
+ ],
+ "Accounting": [
+  "accounting"
+ ],
+ "Agile": [
+  "agile"
+ ],
+ "Android": [
+  "android"
+ ],
+ "Angular": [
+  "angular"
+ ],
+ "Auditing": [
+  "auditing"
+ ],
+ "Azure": [
+  "azure"
+ ],
+ "BLS/ACLS": [
+  "acls",
+  "bls",
+  "bls/acls"
+ ],
+ "Banking": [
+  "banking"
+ ],
+ "Bash": [
+  "bash"
+ ],
+ "Budgeting": [
+  "budgeting"
+ ],
+ "Business Development": [
+  "business development"
+ ],
+ "C++": [
+  "c++"
+ ],
+ "CI/CD": [
+  "ci/cd"
+ ],
+ "CRM": [
+  "crm"
+ ],
+ "CSS": [
+  "css"
+ ],
+ "Civil Engineering": [
+  "civil engineering"
+ ],
+ "Construction Management": [
+  "construction management"
+ ],
+ "Content Marketing": [
+  "content marketing"
+ ],
+ "Contract Management": [
+  "contract management"
+ ],
+ "Corporate Law": [
+  "corporate law"
+ ],
+ "Customer Service": [
+  "customer service"
+ ],
+ "Cybersecurity": [
+  "cybersecurity"
+ ],
+ "Data Analysis": [
+  "data analysis"
+ ],
+ "Data Engineering": [
+  "data engineering"
+ ],
+ "Deep Learning": [
+  "deep learning"
+ ],
+ "DevOps": [
+  "devops"
+ ],
+ "Docker": [
+  "docker"
+ ],
+ "E-learning": [
+  "e-learning"
+ ],
+ "EMR/EHR": [
+  "ehr",
+  "emr",
+  "emr/ehr"
+ ],
+ "Electrical Engineering": [
+  "electrical engineering"
+ ],
+ "Employee Relations": [
+  "employee relations"
+ ],
+ "Excel": [
+  "excel"
+ ],
+ "Financial Analysis": [
+  "financial analysis"
+ ],
+ "Financial Risk": [
+  "financial risk"
+ ],
+ "GCP": [
+  "gcp"
+ ],
+ "Git": [
+  "git"
+ ],
+ "GraphQL": [
+  "graphql"
+ ],
+ "Graphic Design": [
+  "graphic design"
+ ],
+ "Growth Hacking": [
+  "growth hacking"
+ ],
+ "HTML": [
+  "html"
+ ],
+ "Hospitality Management": [
+  "hospitality management"
+ ],
+ "IT Infrastructure": [
+  "it infrastructure"
+ ],
+ "Java": [
+  "java"
+ ],
+ "JavaScript": [
+  "javascript"
+ ],
+ "Kotlin": [
+  "kotlin"
+ ],
+ "Kubernetes": [
+  "kubernetes"
+ ],
+ "Labor Law": [
+  "labor law"
+ ],
+ "Lead Generation": [
+  "lead generation"
+ ],
+ "Linux": [
+  "linux"
+ ],
+ "Machine Learning": [
+  "machine learning"
+ ],
+ "Manufacturing": [
+  "manufacturing"
+ ],
+ "Market Research": [
+  "market research"
+ ],
+ "Marketing": [
+  "marketing"
+ ],
+ "Mechanical Engineering": [
+  "mechanical engineering"
+ ],
+ "Medical Coding": [
+  "medical coding"
+ ],
+ "Microservices": [
+  "microservices"
+ ],
+ "MySQL": [
+  "mysql"
+ ],
+ "Negotiation": [
+  "negotiation"
+ ],
+ "Next.js": [
+  "next.js"
+ ],
+ "Node.js": [
+  "node.js"
+ ],
+ "Non-Profit Management": [
+  "non-profit management"
+ ],
+ "Nursing": [
+  "nursing"
+ ],
+ "Operations Management": [
+  "operations management"
+ ],
+ "Patient Care": [
+  "patient care"
+ ],
+ "Pharmacy": [
+  "pharmacy"
+ ],
+ "PostgreSQL": [
+  "postgresql"
+ ],
+ "Power BI": [
+  "power bi"
+ ],
+ "Procurement": [
+  "procurement"
+ ],
+ "Product Management": [
+  "product management"
+ ],
+ "Product Marketing": [
+  "product marketing"
+ ],
+ "Project Management": [
+  "project management"
+ ],
+ "Public Health": [
+  "public health"
+ ],
+ "PyTorch": [
+  "pytorch"
+ ],
+ "Python": [
+  "python"
+ ],
+ "React": [
+  "react"
+ ],
+ "Real Estate": [
+  "real estate"
+ ],
+ "Recruiting": [
+  "recruiting"
+ ],
+ "Redis": [
+  "redis"
+ ],
+ "Retail Management": [
+  "retail management"
+ ],
+ "Ruby": [
+  "ruby"
+ ],
+ "SEM": [
+  "sem"
+ ],
+ "SQL": [
+  "sql"
+ ],
+ "Sales": [
+  "sales"
+ ],
+ "Salesforce": [
+  "salesforce"
+ ],
+ "Science": [
+  "science"
+ ],
+ "Scientific Research": [
+  "scientific research"
+ ],
+ "Special Education": [
+  "special education"
+ ],
+ "Spring Boot": [
+  "spring boot"
+ ],
+ "Supply Chain": [
+  "supply chain"
+ ],
+ "Swift": [
+  "swift"
+ ],
+ "System Design": [
+  "system design"
+ ],
+ "Tableau": [
+  "tableau"
+ ],
+ "Tax": [
+  "tax"
+ ],
+ "Teaching": [
+  "teaching"
+ ],
+ "Technical Support": [
+  "technical support"
+ ],
+ "Telemedicine": [
+  "telemedicine"
+ ],
+ "Terraform": [
+  "terraform"
+ ],
+ "Training & Development": [
+  "training & development"
+ ],
+ "Translation": [
+  "translation"
+ ],
+ "TypeScript": [
+  "typescript"
+ ],
+ "UI Design": [
+  "ui design"
+ ],
+ "UX Design": [
+  "ux design"
+ ],
+ "Vue.js": [
+  "vue.js"
+ ],
+ "Warehouse Operations": [
+  "warehouse operations"
+ ],
+ "Zendesk": [
+  "zendesk"
+ ],
+ "customer/member service": [
+  "customer/member service"
+ ],
+ "iOS": [
+  "ios"
+ ],
+ "problem solving": [
+  "problem solving"
+ ]
+}

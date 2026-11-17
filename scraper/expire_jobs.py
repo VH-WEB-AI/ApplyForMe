@@ -145,7 +145,8 @@ GONE_RE = re.compile("|".join(re.escape(p) for p in GONE_PHRASES), re.I)
 # returning a 404. Keyed by host substring; the value matches the landing path.
 REDIRECT_TO_LISTING = (
     ("indeed.com", re.compile(r"^/(jobs|q-|$)")),
-    ("linkedin.com", re.compile(r"^/jobs/?$|^/jobs/search|^/jobs/collections")),
+    ("linkedin.com", re.compile(r"^/jobs/?$|^/jobs/search|^/jobs/collections"
+                                r"|trk=expired_jd_redirect")),
     ("glassdoor.com", re.compile(r"^/Job/?$|^/Job/jobs\.htm")),
     ("ziprecruiter.com", re.compile(r"^/jobs-search|^/candidate/search|^/$")),
     ("lever.co", re.compile(r"^/[^/]+/?$")),
@@ -473,11 +474,16 @@ def age_days(created_at):
     return None
 
 
-def fetch_jobs(page_size=200, active_only=True, on_page=None, start_cursor=None):
+def fetch_jobs(page_size=200, active_only=True, on_page=None, start_cursor=None,
+               strict=False):
     """Pages through the panel. A 500 in the middle of 80 pages used to throw the
     whole run away, so a failed page is retried and every page is handed to
     on_page as it lands — the caller checkpoints, and a rerun resumes from the
-    last cursor instead of refetching from the top."""
+    last cursor instead of refetching from the top.
+
+    With strict, a fetch that could not reach the last page exits non-zero rather
+    than returning a partial list, so an unattended run is not recorded as a
+    completed sweep."""
     jobs, cursor = [], start_cursor
     headers = admin_auth.auth_headers()
     while True:
@@ -503,10 +509,14 @@ def fetch_jobs(page_size=200, active_only=True, on_page=None, start_cursor=None)
         else:
             print(f"  giving up at cursor={cursor}; keeping the {len(jobs)} pulled so far",
                   file=sys.stderr)
+            if strict:
+                sys.exit(f"fetch incomplete: gave up at cursor={cursor}")
             break
         if not response.ok:
             print(f"  stopping: http {response.status_code} at cursor={cursor}",
                   file=sys.stderr)
+            if strict:
+                sys.exit(f"fetch incomplete: http {response.status_code} at cursor={cursor}")
             break
 
         body = response.json()
@@ -570,7 +580,8 @@ def phase_fetch(args):
         with open(CURSOR_PATH, "w", encoding="utf-8") as f:
             json.dump({"cursor": cursor}, f)
 
-    jobs = fetch_jobs(active_only=not args.include_inactive, on_page=checkpoint)
+    jobs = fetch_jobs(active_only=not args.include_inactive, on_page=checkpoint,
+                      strict=True)
     with open(JOBS_PATH, "w", encoding="utf-8") as f:
         json.dump(slim(jobs), f)
     print(f"fetched {len(jobs)} job(s) -> {JOBS_PATH}")
@@ -826,8 +837,15 @@ def phase_apply(args):
             print(f"[{index}] FAILED {row['id']}: {response.status_code} "
                   f"{response.text[:200]}", file=sys.stderr)
             break
+        else:
+            # Six network errors, 401s or 429s in a row: not deactivated, and it
+            # stays pending for the next run.
+            failed += 1
+            print(f"[{index}] FAILED {row['id']}: retries exhausted", file=sys.stderr)
         time.sleep(args.delay)
     print(f"\ndeactivated={ok} failed={failed}")
+    if failed:
+        sys.exit(f"{failed} job(s) could not be deactivated; rerun --apply")
 
 
 def main():

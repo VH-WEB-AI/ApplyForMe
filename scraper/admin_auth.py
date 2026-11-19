@@ -60,6 +60,17 @@ def use_panel(name):
     EMAIL_ENV, PASSWORD_ENV = "ADMIN_MIRROR_EMAIL", "ADMIN_MIRROR_PASSWORD"
 
 
+def rate_limit_wait(response, attempt):
+    """Seconds to sit out a 429: the server's Retry-After when it sends one, else a
+    backoff long enough to outlast a per-minute limit. The panel throttles a fast
+    client (the tools running next to the API), and a few seconds is not enough."""
+    try:
+        wait = int(response.headers.get("Retry-After", ""))
+    except ValueError:
+        wait = 30 * attempt
+    return max(5, min(wait + 1, 180))
+
+
 def seconds_left(token):
     """Reads exp out of the JWT payload without verifying it — this is a
     scheduling hint, not a security check; the server remains the authority."""

@@ -33,11 +33,18 @@ VALID_PAIRS = {(c, s) for c, subs in CATEGORY_TREE.items() for s in subs}
 SUB_FIELD = "subcategory"
 
 
-def get_with_retry(headers, params, attempts=6):
-    """One page request that survives short network drops (DNS/connection errors)."""
+def get_with_retry(headers, params, attempts=8):
+    """One page request that survives short network drops (DNS/connection errors) and
+    the panel's rate limit."""
     for attempt in range(1, attempts + 1):
         try:
-            return requests.get(API_BASE, headers=headers, params=params, timeout=60)
+            response = requests.get(API_BASE, headers=headers, params=params, timeout=60)
+            if response.status_code == 429 and attempt < attempts:
+                wait = admin_auth.rate_limit_wait(response, attempt)
+                print(f"  [retry] rate limited; attempt {attempt}/{attempts}, waiting {wait}s", flush=True)
+                time.sleep(wait)
+                continue
+            return response
         except requests.ConnectionError as e:
             if attempt == attempts:
                 raise

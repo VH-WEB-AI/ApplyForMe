@@ -490,18 +490,23 @@ def fetch_jobs(page_size=200, active_only=True, on_page=None, start_cursor=None,
         params = {"limit": page_size}
         if cursor:
             params["cursor"] = cursor
-        for attempt in range(1, 6):
+        for attempt in range(1, 9):
             try:
                 response = requests.get(API_BASE, headers=headers, params=params, timeout=60)
             except requests.RequestException as exc:
-                print(f"  [retry {attempt}/5] {type(exc).__name__}", flush=True)
+                print(f"  [retry {attempt}/8] {type(exc).__name__}", flush=True)
                 time.sleep(3 * attempt)
                 continue
             if response.status_code == 401:
                 headers = admin_auth.auth_headers(force=True)
                 continue
-            if response.status_code == 429 or response.status_code >= 500:
-                print(f"  [retry {attempt}/5] http {response.status_code} at cursor={cursor}",
+            if response.status_code == 429:
+                wait = admin_auth.rate_limit_wait(response, attempt)
+                print(f"  [retry {attempt}/8] rate limited, waiting {wait}s", flush=True)
+                time.sleep(wait)
+                continue
+            if response.status_code >= 500:
+                print(f"  [retry {attempt}/8] http {response.status_code} at cursor={cursor}",
                       flush=True)
                 time.sleep(3 * attempt)
                 continue
